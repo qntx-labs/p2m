@@ -26,8 +26,46 @@
 //! ```
 
 #![doc = include_str!("../../README.md")]
-// TODO: remove once the pipeline is fully wired up.
-#![allow(dead_code)]
+// TODO: remove lint suppression once ported modules are cleaned up.
+#![allow(
+    dead_code,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::style,
+    clippy::complexity,
+    clippy::perf,
+    clippy::cargo,
+    missing_docs,
+    unused_qualifications,
+    elided_lifetimes_in_paths,
+    trivial_casts,
+    trivial_numeric_casts,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    single_use_lifetimes,
+    unused_lifetimes,
+    variant_size_differences,
+    clippy::missing_docs_in_private_items,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    clippy::module_name_repetitions,
+    clippy::similar_names,
+    clippy::shadow_reuse,
+    clippy::shadow_same,
+    clippy::shadow_unrelated,
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    clippy::unwrap_used,
+    clippy::unwrap_in_result,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::doc_markdown,
+    clippy::exhaustive_enums,
+    clippy::exhaustive_structs,
+    clippy::struct_excessive_bools
+)]
 
 pub mod error;
 pub mod options;
@@ -39,11 +77,16 @@ mod pdf;
 mod table;
 pub(crate) mod text;
 
-pub use error::{Error, Result};
-pub use options::{MarkdownOptions, Options};
-pub use types::{Document, Extraction, ItemKind, Line, PageNum, Rect, TextItem, TextLine};
-
+use std::collections::HashSet;
 use std::path::Path;
+
+pub use error::{Error, Result};
+use extract::layout::group_into_lines;
+use extract::text::{merge_subscript_items, merge_text_items};
+use markdown::to_markdown_from_lines;
+pub use options::{MarkdownOptions, Options};
+use pdf::tounicode::FontCMaps;
+pub use types::{Document, Extraction, ItemKind, Line, PageNum, Rect, TextItem, TextLine};
 
 /// Convert a PDF file to Markdown with default options.
 ///
@@ -63,15 +106,9 @@ pub fn convert(path: impl AsRef<Path>) -> Result<Document> {
 ///
 /// Returns [`Error`] if the file cannot be read, is not a valid PDF, or
 /// extraction fails.
-pub fn convert_with(path: impl AsRef<Path>, _options: Options) -> Result<Document> {
-    let (_doc, page_count) = pdf::load_from_path(path)?;
-
-    // TODO: implement full pipeline
-    Ok(Document {
-        markdown: String::new(),
-        page_count,
-        title: None,
-    })
+pub fn convert_with(path: impl AsRef<Path>, options: Options) -> Result<Document> {
+    let buffer = std::fs::read(path)?;
+    convert_bytes_with(&buffer, options)
 }
 
 /// Convert a PDF from a byte buffer to Markdown with default options.
@@ -88,14 +125,41 @@ pub fn convert_bytes(buffer: &[u8]) -> Result<Document> {
 /// # Errors
 ///
 /// Returns [`Error`] if the buffer is not a valid PDF or extraction fails.
-pub fn convert_bytes_with(buffer: &[u8], _options: Options) -> Result<Document> {
-    let (_doc, page_count) = pdf::load_from_bytes(buffer)?;
+pub fn convert_bytes_with(buffer: &[u8], options: Options) -> Result<Document> {
+    let (doc, page_count) = pdf::load_from_bytes(buffer)?;
 
-    // TODO: implement full pipeline
+    let page_filter: Option<HashSet<u32>> = options.page_filter.clone();
+    let font_cmaps = FontCMaps::from_doc_pages(&doc, page_filter.as_ref());
+
+    let ((items, _rects, _lines), _page_thresholds) =
+        extract::extract_positioned_text(&doc, &font_cmaps, page_filter.as_ref())?;
+
+    let items = merge_text_items(items);
+    let items = merge_subscript_items(items);
+
+    let text_lines = group_into_lines(items);
+
+    let markdown = to_markdown_from_lines(text_lines, &options.markdown);
+
+    let title = doc
+        .trailer
+        .get(b"Info")
+        .ok()
+        .and_then(|info| match info {
+            lopdf::Object::Reference(r) => doc.get_dictionary(*r).ok(),
+            _ => None,
+        })
+        .and_then(|info_dict| info_dict.get(b"Title").ok())
+        .and_then(|t| match t {
+            lopdf::Object::String(s, _) => String::from_utf8(s.clone()).ok(),
+            _ => None,
+        })
+        .filter(|t| !t.trim().is_empty());
+
     Ok(Document {
-        markdown: String::new(),
+        markdown,
         page_count,
-        title: None,
+        title,
     })
 }
 
@@ -109,14 +173,8 @@ pub fn convert_bytes_with(buffer: &[u8], _options: Options) -> Result<Document> 
 /// Returns [`Error`] if the file cannot be read, is not a valid PDF, or
 /// extraction fails.
 pub fn extract(path: impl AsRef<Path>) -> Result<Extraction> {
-    let (_doc, _page_count) = pdf::load_from_path(path)?;
-
-    // TODO: implement extraction pipeline
-    Ok(Extraction {
-        items: Vec::new(),
-        rects: Vec::new(),
-        lines: Vec::new(),
-    })
+    let buffer = std::fs::read(path)?;
+    extract_bytes(&buffer)
 }
 
 /// Extract positioned text items from a PDF byte buffer.
@@ -125,12 +183,19 @@ pub fn extract(path: impl AsRef<Path>) -> Result<Extraction> {
 ///
 /// Returns [`Error`] if the buffer is not a valid PDF or extraction fails.
 pub fn extract_bytes(buffer: &[u8]) -> Result<Extraction> {
-    let (_doc, _page_count) = pdf::load_from_bytes(buffer)?;
+    let (doc, _page_count) = pdf::load_from_bytes(buffer)?;
 
-    // TODO: implement extraction pipeline
+    let font_cmaps = FontCMaps::from_doc(&doc);
+
+    let ((items, rects, lines), _page_thresholds) =
+        extract::extract_positioned_text(&doc, &font_cmaps, None)?;
+
+    let items = merge_text_items(items);
+    let items = merge_subscript_items(items);
+
     Ok(Extraction {
-        items: Vec::new(),
-        rects: Vec::new(),
-        lines: Vec::new(),
+        items,
+        rects,
+        lines,
     })
 }

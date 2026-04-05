@@ -14,6 +14,7 @@ name = "p2m"
 path = "src/main.rs"
 
 [dependencies]
+p2m = { path = "../p2m" }
 
 [lints]
 workspace = true

@@ -7,12 +7,12 @@
 //!   UTF-16BE, UTF-8, Latin-1).
 //! - Heuristic scoring to choose between primary and remapped CMaps.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use lopdf::{Dictionary, Document, Object};
 
 use crate::pdf::glyph_names::glyph_to_char;
-use crate::pdf::tounicode::{FontCMaps, ToUnicodeCMap};
+use crate::pdf::tounicode::{CMapEntry, FontCMaps};
 use crate::text::unicode::decode_text_string;
 use crate::types::{FontEncodingMap, FontWidthInfo, PageFontEncodings, PageFontWidths};
 
@@ -129,23 +129,19 @@ impl CMapDecisionCache {
 ///
 /// `fonts` is the `/Font` sub-dictionary of a page's `/Resources`.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn build_font_widths(doc: &Document, fonts: &Dictionary) -> PageFontWidths {
+pub(crate) fn build_font_widths(
+    doc: &Document,
+    fonts: &BTreeMap<Vec<u8>, &Dictionary>,
+) -> PageFontWidths {
     let mut page_widths = PageFontWidths::new();
 
-    for (name_bytes, obj) in fonts.iter() {
+    for (name_bytes, &font_dict) in fonts {
         let font_name = String::from_utf8_lossy(name_bytes).into_owned();
-        let font_dict = match resolve_object_to_dict(doc, obj) {
-            Some(d) => d,
-            None => continue,
-        };
 
-        let subtype = font_dict
-            .get(b"Subtype")
-            .ok()
-            .and_then(|o| match o {
-                Object::Name(n) => Some(n.as_slice()),
-                _ => None,
-            });
+        let subtype = font_dict.get(b"Subtype").ok().and_then(|o| match o {
+            Object::Name(n) => Some(n.as_slice()),
+            _ => None,
+        });
 
         let info = match subtype {
             Some(b"Type0") => parse_type0_widths(doc, font_dict),
@@ -400,17 +396,13 @@ pub(crate) struct EncodingResult {
 /// fallback).
 pub(crate) fn build_font_encodings(
     doc: &Document,
-    fonts: &Dictionary,
+    fonts: &BTreeMap<Vec<u8>, &Dictionary>,
 ) -> (PageFontEncodings, bool) {
     let mut page_encodings = PageFontEncodings::new();
     let mut has_gid_fonts = false;
 
-    for (name_bytes, obj) in fonts.iter() {
+    for (name_bytes, &font_dict) in fonts {
         let font_name = String::from_utf8_lossy(name_bytes).into_owned();
-        let font_dict = match resolve_object_to_dict(doc, obj) {
-            Some(d) => d,
-            None => continue,
-        };
 
         // Check for Encoding entry.
         let enc_obj = match font_dict.get(b"Encoding").ok() {
@@ -515,7 +507,9 @@ fn is_gid_glyph_name(name: &str) -> bool {
     let lower = name.to_lowercase();
     (lower.starts_with("glyph") && lower[5..].chars().all(|c| c.is_ascii_digit()))
         || (lower.starts_with("cid") && lower[3..].chars().all(|c| c.is_ascii_digit()))
-        || (lower.starts_with('g') && lower.len() > 1 && lower[1..].chars().all(|c| c.is_ascii_digit()))
+        || (lower.starts_with('g')
+            && lower.len() > 1
+            && lower[1..].chars().all(|c| c.is_ascii_digit()))
 }
 
 /// Convert a glyph name to a Unicode character.
@@ -587,7 +581,7 @@ pub(crate) fn extract_text_from_operand(
     base_font_name: &str,
     font_cmaps: &FontCMaps,
     font_tounicode_refs: &HashMap<String, u32>,
-    inline_cmaps: &HashMap<String, ToUnicodeCMap>,
+    inline_cmaps: &HashMap<String, CMapEntry>,
     font_encodings: &PageFontEncodings,
     encoding_cache: &mut HashMap<String, FontEncodingMap>,
     cmap_decisions: &mut CMapDecisionCache,
@@ -602,61 +596,60 @@ pub(crate) fn extract_text_from_operand(
     }
 
     // ── Layer 1: ToUnicode CMap ────────────────────────────────────
-    if let Some((primary_cmap, remapped_opt)) = font_cmaps.get(current_font) {
-        let obj_num = font_tounicode_refs
-            .get(current_font)
-            .copied()
-            .unwrap_or(0);
+    let obj_num = font_tounicode_refs.get(current_font).copied().unwrap_or(0);
 
-        // If there is a remapped CMap, we need to decide which one to use.
-        if let Some(remapped_cmap) = remapped_opt {
-            // Check if we already have a decision.
+    // Try inline CMap first, then global FontCMaps by object number.
+    let entry: Option<&CMapEntry> = inline_cmaps
+        .get(current_font)
+        .or_else(|| font_cmaps.get_by_obj(obj_num));
+
+    if let Some(cmap_entry) = entry {
+        let primary = &cmap_entry.primary;
+
+        if let Some(remapped) = &cmap_entry.remapped {
+            // Decide between primary and remapped CMap.
             if let Some(choice) = cmap_decisions.get_choice(obj_num) {
                 let cmap = match choice {
-                    CMapChoice::Primary => primary_cmap,
-                    CMapChoice::Remapped => remapped_cmap,
+                    CMapChoice::Primary => primary,
+                    CMapChoice::Remapped => remapped,
                 };
-                let text = decode_with_cmap(bytes, cmap, primary_cmap.mappings.len() > 256);
-                if let Some(t) = text {
-                    return Some(clean_pua_chars(&t));
+                let text = cmap.decode_cids(bytes);
+                if !text.is_empty() {
+                    return Some(clean_pua_chars(&text));
                 }
             } else {
-                // Decode with both and score.
-                let is_two_byte = primary_cmap.mappings.len() > 256;
-                let primary_text = decode_with_cmap(bytes, primary_cmap, is_two_byte);
-                let remapped_text = decode_with_cmap(bytes, remapped_cmap, is_two_byte);
+                let primary_text = primary.decode_cids(bytes);
+                let remapped_text = remapped.decode_cids(bytes);
 
-                match (&primary_text, &remapped_text) {
-                    (Some(pt), Some(rt)) => {
-                        let choice =
-                            cmap_decisions.consider(obj_num, pt, rt, bytes.len());
-                        let chosen = match choice {
-                            Some(CMapChoice::Remapped) => rt.as_str(),
-                            _ => pt.as_str(),
-                        };
+                if !primary_text.is_empty() || !remapped_text.is_empty() {
+                    let choice = cmap_decisions.consider(
+                        obj_num,
+                        &primary_text,
+                        &remapped_text,
+                        bytes.len(),
+                    );
+                    let chosen = match choice {
+                        Some(CMapChoice::Remapped) => &remapped_text,
+                        _ => &primary_text,
+                    };
+                    if !chosen.is_empty() {
                         return Some(clean_pua_chars(chosen));
                     }
-                    (Some(pt), None) => return Some(clean_pua_chars(pt)),
-                    (None, Some(rt)) => return Some(clean_pua_chars(rt)),
-                    (None, None) => { /* fall through */ }
                 }
             }
         } else {
-            // No remapped CMap — use primary directly.
-            let is_two_byte = primary_cmap.mappings.len() > 256;
-            let text = decode_with_cmap(bytes, primary_cmap, is_two_byte);
-            if let Some(t) = text {
-                return Some(clean_pua_chars(&t));
+            let text = primary.decode_cids(bytes);
+            if !text.is_empty() {
+                return Some(clean_pua_chars(&text));
             }
         }
-    }
 
-    // Check inline CMaps.
-    if let Some(cmap) = inline_cmaps.get(current_font) {
-        let is_two_byte = cmap.mappings.len() > 256;
-        let text = decode_with_cmap(bytes, cmap, is_two_byte);
-        if let Some(t) = text {
-            return Some(clean_pua_chars(&t));
+        // Try fallback CMap.
+        if let Some(fallback) = &cmap_entry.fallback {
+            let text = fallback.decode_cids(bytes);
+            if !text.is_empty() {
+                return Some(clean_pua_chars(&text));
+            }
         }
     }
 
@@ -711,50 +704,7 @@ pub(crate) fn extract_text_from_operand(
     }
 }
 
-/// Decode a byte sequence using a `ToUnicode` CMap.
-///
-/// Returns `None` if no bytes could be decoded.
-fn decode_with_cmap(bytes: &[u8], cmap: &ToUnicodeCMap, is_two_byte: bool) -> Option<String> {
-    let mut result = String::with_capacity(bytes.len());
-    let mut any_decoded = false;
-
-    if is_two_byte {
-        let mut i = 0;
-        while i < bytes.len() {
-            // Try 2-byte code first.
-            if i + 1 < bytes.len() {
-                let code = u32::from(bytes[i]) << 8 | u32::from(bytes[i + 1]);
-                if let Some(s) = cmap.decode(code) {
-                    result.push_str(s);
-                    any_decoded = true;
-                    i += 2;
-                    continue;
-                }
-            }
-            // Fall back to 1-byte.
-            let code = u32::from(bytes[i]);
-            if let Some(s) = cmap.decode(code) {
-                result.push_str(s);
-                any_decoded = true;
-            }
-            i += 1;
-        }
-    } else {
-        for &byte in bytes {
-            let code = u32::from(byte);
-            if let Some(s) = cmap.decode(code) {
-                result.push_str(s);
-                any_decoded = true;
-            } else if byte >= 0x20 && byte < 0x7F {
-                // Printable ASCII fallback within single-byte CMaps.
-                result.push(byte as char);
-                any_decoded = true;
-            }
-        }
-    }
-
-    if any_decoded { Some(result) } else { None }
-}
+// decode_with_cmap removed — use ToUnicodeCMap::decode_cids() directly.
 
 /// Apply Private Use Area remapping for Symbol and Wingdings fonts.
 ///
@@ -832,11 +782,11 @@ pub(crate) fn score_text(text: &str) -> i32 {
     // Bonus for common short words found in the text.
     let lower = text.to_lowercase();
     for word in &[
-        " the ", " and ", " of ", " to ", " in ", " a ", " is ", " for ", " on ", " that ",
-        " it ", " with ", " as ", " was ", " at ", " by ", " an ", " be ", " this ", " from ",
-        " or ", " are ", " but ", " not ", " you ", " all ", " can ", " had ", " her ", " one ",
-        " our ", " out ", " de ", " la ", " le ", " et ", " en ", " un ", " une ", " les ", " des ",
-        " du ", " au ", " der ", " die ", " das ", " und ", " von ", " den ", " mit ",
+        " the ", " and ", " of ", " to ", " in ", " a ", " is ", " for ", " on ", " that ", " it ",
+        " with ", " as ", " was ", " at ", " by ", " an ", " be ", " this ", " from ", " or ",
+        " are ", " but ", " not ", " you ", " all ", " can ", " had ", " her ", " one ", " our ",
+        " out ", " de ", " la ", " le ", " et ", " en ", " un ", " une ", " les ", " des ", " du ",
+        " au ", " der ", " die ", " das ", " und ", " von ", " den ", " mit ",
     ] {
         if lower.contains(word) {
             score += 10;
@@ -863,7 +813,9 @@ pub(crate) fn clean_pua_chars(text: &str) -> String {
         return text.to_string();
     }
 
-    text.chars().filter(|ch| !is_private_use_area(*ch)).collect()
+    text.chars()
+        .filter(|ch| !is_private_use_area(*ch))
+        .collect()
 }
 
 /// Check if a character is in the Unicode Private Use Area.

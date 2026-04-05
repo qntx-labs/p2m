@@ -1,5 +1,6 @@
 //! Low-level PDF parsing: document loading, validation, and content extraction.
 
+pub mod adobe_korea1;
 pub mod content_stream;
 pub mod fonts;
 pub mod glyph_names;

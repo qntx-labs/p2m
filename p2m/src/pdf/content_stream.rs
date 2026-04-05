@@ -15,8 +15,8 @@ use lopdf::{Document, Object, ObjectId};
 
 use crate::error::{Error, Result};
 use crate::pdf::fonts::{
-    build_font_encodings, build_font_widths, compute_string_width_ts, extract_text_from_operand,
-    get_font_file2_obj_num, get_operand_bytes, CMapDecisionCache,
+    CMapDecisionCache, build_font_encodings, build_font_widths, compute_string_width_ts,
+    extract_text_from_operand, get_font_file2_obj_num,
 };
 use crate::pdf::tounicode::FontCMaps;
 use crate::text::unicode::{
@@ -96,9 +96,9 @@ pub(crate) fn extract_page_text_items(
                     let data = s
                         .decompressed_content()
                         .unwrap_or_else(|_| s.content.clone());
-                    if let Some(entry) =
-                        crate::pdf::tounicode::build_cmap_entry_from_stream(&data, font_dict, doc, 0)
-                    {
+                    if let Some(entry) = crate::pdf::tounicode::build_cmap_entry_from_stream(
+                        &data, font_dict, doc, 0,
+                    ) {
                         inline_cmaps.insert(resource_name, entry);
                     }
                 }
@@ -111,14 +111,8 @@ pub(crate) fn extract_page_text_items(
         }
     }
 
-    // Cache lopdf font encodings once per font.
-    let mut encoding_cache: HashMap<String, lopdf::Encoding<'_>> = HashMap::new();
-    for (font_name, font_dict) in &fonts {
-        let name = String::from_utf8_lossy(font_name).to_string();
-        if let Ok(enc) = font_dict.get_font_encoding(doc) {
-            encoding_cache.insert(name, enc);
-        }
-    }
+    // Cache for lazily-parsed font encoding maps.
+    let mut encoding_cache: HashMap<String, crate::types::FontEncodingMap> = HashMap::new();
 
     let mut cmap_decisions = CMapDecisionCache::new();
 
@@ -324,7 +318,7 @@ pub(crate) fn extract_page_text_items(
                         &font_tounicode_refs,
                         &inline_cmaps,
                         &font_encodings,
-                        &encoding_cache,
+                        &mut encoding_cache,
                         &mut cmap_decisions,
                         &marked_content_stack,
                         &mut rotation_votes,
@@ -355,7 +349,7 @@ pub(crate) fn extract_page_text_items(
                         &font_tounicode_refs,
                         &inline_cmaps,
                         &font_encodings,
-                        &encoding_cache,
+                        &mut encoding_cache,
                         &mut cmap_decisions,
                         &marked_content_stack,
                         &mut rotation_votes,
@@ -392,7 +386,7 @@ pub(crate) fn extract_page_text_items(
                         &font_tounicode_refs,
                         &inline_cmaps,
                         &font_encodings,
-                        &encoding_cache,
+                        &mut encoding_cache,
                         &mut cmap_decisions,
                         &marked_content_stack,
                         &mut rotation_votes,
@@ -436,7 +430,7 @@ pub(crate) fn extract_page_text_items(
                             &font_tounicode_refs,
                             &inline_cmaps,
                             &font_encodings,
-                            &encoding_cache,
+                            &mut encoding_cache,
                             &mut cmap_decisions,
                             &marked_content_stack,
                             &mut rotation_votes,
@@ -537,12 +531,7 @@ pub(crate) fn extract_page_text_items(
                 if !pending_lines.is_empty() {
                     pending_subpaths.push(std::mem::take(&mut pending_lines));
                 }
-                extract_fill_rects(
-                    &ctm,
-                    &mut pending_subpaths,
-                    page_num,
-                    &mut fill_rects,
-                );
+                extract_fill_rects(&ctm, &mut pending_subpaths, page_num, &mut fill_rects);
                 pending_lines.clear();
                 path_subpath_start = None;
                 path_current = None;
@@ -555,8 +544,7 @@ pub(crate) fn extract_page_text_items(
                 } else {
                     pending_lines.clone()
                 };
-                if let Some(r) = try_extract_clip_rect(&segs, path_subpath_start, &ctm, page_num)
-                {
+                if let Some(r) = try_extract_clip_rect(&segs, path_subpath_start, &ctm, page_num) {
                     clip_rects.push(r);
                 }
                 // Do NOT clear pending_lines — the following `n` does that.
@@ -811,7 +799,7 @@ fn handle_tj(
     font_tounicode_refs: &HashMap<String, u32>,
     inline_cmaps: &HashMap<String, crate::pdf::tounicode::CMapEntry>,
     font_encodings: &PageFontEncodings,
-    encoding_cache: &HashMap<String, lopdf::Encoding<'_>>,
+    encoding_cache: &mut HashMap<String, crate::types::FontEncodingMap>,
     cmap_decisions: &mut CMapDecisionCache,
     marked_content_stack: &[MarkedContentEntry],
     rotation_votes: &mut RotationVotes,
@@ -847,7 +835,10 @@ fn handle_tj(
     if let Some(text) = extract_text_from_operand(
         operand,
         current_font,
-        font_base_names.get(current_font).map(String::as_str),
+        font_base_names
+            .get(current_font)
+            .map(String::as_str)
+            .unwrap_or(""),
         font_cmaps,
         font_tounicode_refs,
         inline_cmaps,
@@ -859,7 +850,7 @@ fn handle_tj(
         vote_rotation(&combined, rotation_votes);
         let rendered_size = effective_font_size(current_font_size, &combined);
         let (x, y) = (combined[4], combined[5]);
-        let width = if let Some(w_ts) = w_ts_opt {
+        let width: f32 = if let Some(w_ts) = w_ts_opt {
             text_matrix[4] += w_ts * text_matrix[0];
             text_matrix[5] += w_ts * text_matrix[1];
             (w_ts * (text_matrix[0] * ctm[0] + text_matrix[1] * ctm[2])).abs()
@@ -914,7 +905,7 @@ fn handle_tj_array(
     font_tounicode_refs: &HashMap<String, u32>,
     inline_cmaps: &HashMap<String, crate::pdf::tounicode::CMapEntry>,
     font_encodings: &PageFontEncodings,
-    encoding_cache: &HashMap<String, lopdf::Encoding<'_>>,
+    encoding_cache: &mut HashMap<String, crate::types::FontEncodingMap>,
     cmap_decisions: &mut CMapDecisionCache,
     marked_content_stack: &[MarkedContentEntry],
     rotation_votes: &mut RotationVotes,
@@ -946,7 +937,8 @@ fn handle_tj_array(
     for element in array {
         // Handle numeric positioning adjustments.
         let n_val = match element {
-            Object::Integer(n) => {
+            Object::Integer(n) =>
+            {
                 #[allow(clippy::cast_precision_loss)]
                 Some(*n as f32)
             }
@@ -980,8 +972,13 @@ fn handle_tj_array(
         // Accumulate string width.
         if let Some(fi) = font_info {
             if let Some(raw_bytes) = get_operand_bytes(element) {
-                total_width_ts +=
-                    compute_string_width_ts(raw_bytes, fi, current_font_size, char_spacing, word_spacing);
+                total_width_ts += compute_string_width_ts(
+                    raw_bytes,
+                    fi,
+                    current_font_size,
+                    char_spacing,
+                    word_spacing,
+                );
             }
         }
 
@@ -990,7 +987,10 @@ fn handle_tj_array(
             if let Some(text) = extract_text_from_operand(
                 element,
                 current_font,
-                font_base_names.get(current_font).map(String::as_str),
+                font_base_names
+                    .get(current_font)
+                    .map(String::as_str)
+                    .unwrap_or(""),
                 font_cmaps,
                 font_tounicode_refs,
                 inline_cmaps,
@@ -1074,7 +1074,7 @@ fn handle_show_text_simple(
     font_tounicode_refs: &HashMap<String, u32>,
     inline_cmaps: &HashMap<String, crate::pdf::tounicode::CMapEntry>,
     font_encodings: &PageFontEncodings,
-    encoding_cache: &HashMap<String, lopdf::Encoding<'_>>,
+    encoding_cache: &mut HashMap<String, crate::types::FontEncodingMap>,
     cmap_decisions: &mut CMapDecisionCache,
     marked_content_stack: &[MarkedContentEntry],
     rotation_votes: &mut RotationVotes,
@@ -1083,7 +1083,10 @@ fn handle_show_text_simple(
     if let Some(text) = extract_text_from_operand(
         operand,
         current_font,
-        font_base_names.get(current_font).map(String::as_str),
+        font_base_names
+            .get(current_font)
+            .map(String::as_str)
+            .unwrap_or(""),
         font_cmaps,
         font_tounicode_refs,
         inline_cmaps,
@@ -1293,29 +1296,23 @@ fn get_page_xobjects(doc: &Document, page_id: ObjectId) -> HashMap<String, XObje
         Err(_) => return xobject_types,
     };
 
-    let resources = page_dict
-        .get(b"Resources")
-        .ok()
-        .and_then(|r| {
-            r.as_reference()
-                .ok()
-                .and_then(|obj_ref| doc.get_dictionary(obj_ref).ok())
-                .or_else(|| r.as_dict().ok())
-        });
+    let resources = page_dict.get(b"Resources").ok().and_then(|r| {
+        r.as_reference()
+            .ok()
+            .and_then(|obj_ref| doc.get_dictionary(obj_ref).ok())
+            .or_else(|| r.as_dict().ok())
+    });
 
     let Some(resources) = resources else {
         return xobject_types;
     };
 
-    let xobjects_dict = resources
-        .get(b"XObject")
-        .ok()
-        .and_then(|r| {
-            r.as_reference()
-                .ok()
-                .and_then(|obj_ref| doc.get_dictionary(obj_ref).ok())
-                .or_else(|| r.as_dict().ok())
-        });
+    let xobjects_dict = resources.get(b"XObject").ok().and_then(|r| {
+        r.as_reference()
+            .ok()
+            .and_then(|obj_ref| doc.get_dictionary(obj_ref).ok())
+            .or_else(|| r.as_dict().ok())
+    });
 
     let Some(xobjects) = xobjects_dict else {
         return xobject_types;
@@ -1500,6 +1497,14 @@ fn correct_rotated_page(
     }
 
     (items, rects, lines, true)
+}
+
+/// Extract raw bytes from a PDF operand.
+fn get_operand_bytes(obj: &Object) -> Option<&[u8]> {
+    match obj {
+        Object::String(bytes, _) => Some(bytes.as_slice()),
+        _ => None,
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

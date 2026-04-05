@@ -13,7 +13,7 @@ mod grid;
 pub use detect_heuristic::detect_tables;
 pub use detect_lines::detect_tables_from_lines;
 pub(crate) use detect_rects::cluster_rects;
-pub use detect_rects::detect_tables_from_rects;
+pub use detect_rects::{detect_tables_from_rects, RectHintRegion};
 pub use detect_struct::detect_tables_from_struct_tree;
 pub use format::table_to_markdown;
 
@@ -230,9 +230,9 @@ fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem
             font: item.font.clone(),
             font_size: item.font_size,
             page: item.page,
-            bold: item.bold,
-            italic: item.italic,
-            kind: item.kind.clone(),
+            is_bold: item.is_bold,
+            is_italic: item.is_italic,
+            item_type: item.item_type.clone(),
             mcid: item.mcid,
         });
     }
@@ -250,9 +250,9 @@ fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem
             font: item.font.clone(),
             font_size: item.font_size,
             page: item.page,
-            bold: item.bold,
-            italic: item.italic,
-            kind: item.kind.clone(),
+            is_bold: item.is_bold,
+            is_italic: item.is_italic,
+            item_type: item.item_type.clone(),
             mcid: item.mcid,
         });
     }
@@ -278,7 +278,7 @@ pub(crate) enum TableDetectionMode {
 ///
 /// Requires ≥3 columns, ≥3 rows, and ≥40% cell fill rate.
 pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Option<Table> {
-    use crate::extract::layout::{
+    use crate::extractor::{
         detect_columns, group_into_lines_with_thresholds, is_newspaper_layout, ColumnRegion,
     };
     use std::collections::HashMap;
@@ -291,7 +291,7 @@ pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Opt
     // Refine columns: look for header-like rows where multiple items share
     // the same Y and are evenly spaced. If a wide column contains two header
     // items, split it at the gap between them.
-    let page_items: Vec<&TextItem> = items.iter().filter(|i| i.page.get() == page).collect();
+    let page_items: Vec<&TextItem> = items.iter().filter(|i| i.page == page).collect();
     let y_tol = 3.0;
 
     // Find the top-most row with items in multiple columns (likely the header)
@@ -353,7 +353,7 @@ pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Opt
     let mut col_buckets: Vec<Vec<TextItem>> = vec![Vec::new(); columns.len()];
     let mut spanning_items: Vec<TextItem> = Vec::new();
     for item in items {
-        if item.page.get() != page {
+        if item.page != page {
             continue;
         }
         // Check if item spans multiple columns
@@ -423,7 +423,7 @@ pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Opt
     let mut item_indices: Vec<usize> = Vec::new();
 
     for (item_idx, item) in items.iter().enumerate() {
-        if item.page.get() != page {
+        if item.page != page {
             continue;
         }
         // Find column
@@ -565,7 +565,7 @@ pub struct Table {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ItemKind, TextItem};
+    use crate::types::{ItemType, TextItem};
 
     fn make_item(text: &str, x: f32, y: f32, font_size: f32) -> TextItem {
         TextItem {
@@ -576,10 +576,10 @@ mod tests {
             height: font_size,
             font: "F1".into(),
             font_size,
-            page: crate::types::PageNum::new(1),
-            bold: false,
-            italic: false,
-            kind: ItemKind::Text,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            item_type: ItemType::Text,
             mcid: None,
         }
     }
@@ -593,10 +593,10 @@ mod tests {
             height: font_size,
             font: "F1".into(),
             font_size,
-            page: crate::types::PageNum::new(1),
-            bold: false,
-            italic: false,
-            kind: ItemKind::Text,
+            page: 1,
+            is_bold: false,
+            is_italic: false,
+            item_type: ItemType::Text,
             mcid: None,
         }
     }

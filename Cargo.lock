@@ -357,6 +357,9 @@ dependencies = [
 [[package]]
 name = "p2m-cli"
 version = "0.1.0"
+dependencies = [
+ "p2m",
+]
 
 [[package]]
 name = "powerfmt"
