@@ -10,6 +10,13 @@ categories.workspace = true
 readme.workspace = true
 
 [dependencies]
+lopdf = "0.34"
+log = "0.4"
+rayon = "1"
+regex = "1"
+thiserror = "2"
+ttf-parser = "0.25"
+unicode-normalization = "0.1"
 
 [lints]
 workspace = true
