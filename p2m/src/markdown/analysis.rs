@@ -7,19 +7,20 @@ use log::debug;
 use crate::types::{PageNum, TextItem, TextLine};
 
 /// Font statistics for a document.
-pub(crate) struct FontStats {
+pub(super) struct FontStats {
     /// The most common font size in the document.
-    pub(crate) most_common_size: f32,
-    /// Font size frequency distribution (size_key → line count).
-    pub(crate) size_counts: HashMap<i32, usize>,
+    pub(super) most_common_size: f32,
+    /// Font size frequency distribution (`size_key` → line count).
+    pub(super) size_counts: HashMap<i32, usize>,
     /// Total number of lines counted.
-    pub(crate) total_lines: usize,
+    pub(super) total_lines: usize,
 }
 
 /// Compute how rare a font size is in the document (0.0 = most common, 1.0 = unique).
 ///
 /// Heading fonts appear on far fewer lines than body text, so their rarity is high.
-pub(crate) fn font_size_rarity(font_size: f32, stats: &FontStats) -> f32 {
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub(super) fn font_size_rarity(font_size: f32, stats: &FontStats) -> f32 {
     if stats.total_lines == 0 {
         return 0.0;
     }
@@ -29,7 +30,8 @@ pub(crate) fn font_size_rarity(font_size: f32, stats: &FontStats) -> f32 {
 }
 
 /// Calculate font stats directly from items (before grouping into lines).
-pub(crate) fn calculate_font_stats_from_items(items: &[TextItem]) -> FontStats {
+#[allow(dead_code, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub(super) fn calculate_font_stats_from_items(items: &[TextItem]) -> FontStats {
     let mut size_counts: HashMap<i32, usize> = HashMap::new();
 
     for item in items {
@@ -46,8 +48,7 @@ pub(crate) fn calculate_font_stats_from_items(items: &[TextItem]) -> FontStats {
         .max_by(|(size_a, count_a), (size_b, count_b)| {
             count_a.cmp(count_b).then_with(|| size_b.cmp(size_a))
         })
-        .map(|(size, _)| *size as f32 / 10.0)
-        .unwrap_or(12.0);
+        .map_or(12.0, |(size, _)| *size as f32 / 10.0);
 
     FontStats {
         most_common_size,
@@ -57,15 +58,16 @@ pub(crate) fn calculate_font_stats_from_items(items: &[TextItem]) -> FontStats {
 }
 
 /// Calculate font stats from grouped lines.
-pub(crate) fn calculate_font_stats(lines: &[TextLine]) -> FontStats {
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+pub(super) fn calculate_font_stats(lines: &[TextLine]) -> FontStats {
     let mut size_counts: HashMap<i32, usize> = HashMap::new();
 
     for line in lines {
-        if let Some(first) = line.items.first() {
-            if first.font_size >= 9.0 {
-                let size_key = (first.font_size * 10.0) as i32;
-                *size_counts.entry(size_key).or_insert(0) += 1;
-            }
+        if let Some(first) = line.items.first()
+            && first.font_size >= 9.0
+        {
+            let size_key = (first.font_size * 10.0) as i32;
+            *size_counts.entry(size_key).or_insert(0) += 1;
         }
     }
 
@@ -76,8 +78,7 @@ pub(crate) fn calculate_font_stats(lines: &[TextLine]) -> FontStats {
         .max_by(|(size_a, count_a), (size_b, count_b)| {
             count_a.cmp(count_b).then_with(|| size_b.cmp(size_a))
         })
-        .map(|(size, _)| *size as f32 / 10.0)
-        .unwrap_or(12.0);
+        .map_or(12.0, |(size, _)| *size as f32 / 10.0);
 
     FontStats {
         most_common_size,
@@ -90,13 +91,13 @@ pub(crate) fn calculate_font_stats(lines: &[TextLine]) -> FontStats {
 /// font-size threshold.
 ///
 /// Returns a level below the lowest font-size tier (or H2 when no tiers exist).
-pub(crate) fn bold_heading_level(heading_tiers: &[f32]) -> usize {
+pub(super) fn bold_heading_level(heading_tiers: &[f32]) -> usize {
     let level = heading_tiers.len() + 1;
     level.clamp(2, 6)
 }
 
 /// Detect TOC-style lines that contain dot leaders (e.g. "Section Name .... 42").
-pub(crate) fn has_dot_leaders(text: &str) -> bool {
+pub(super) fn has_dot_leaders(text: &str) -> bool {
     if text.contains("....") {
         return true;
     }
@@ -122,19 +123,19 @@ pub(crate) fn has_dot_leaders(text: &str) -> bool {
 ///
 /// Computes the document's typical (median) line spacing and uses a multiplier
 /// on that.  Falls back to `base_size * 1.8` when insufficient data.
-pub(crate) fn compute_paragraph_threshold(lines: &[TextLine], base_size: f32) -> f32 {
+pub(super) fn compute_paragraph_threshold(lines: &[TextLine], base_size: f32) -> f32 {
     let fallback = base_size * 1.8;
 
     let mut gaps: Vec<f32> = Vec::new();
     let mut prev_y: Option<(PageNum, f32)> = None;
 
     for line in lines {
-        if let Some((prev_page, py)) = prev_y {
-            if line.page == prev_page {
-                let gap = py - line.y;
-                if gap > 0.0 && gap < base_size * 10.0 {
-                    gaps.push(gap);
-                }
+        if let Some((prev_page, py)) = prev_y
+            && line.page == prev_page
+        {
+            let gap = py - line.y;
+            if gap > 0.0 && gap < base_size * 10.0 {
+                gaps.push(gap);
             }
         }
         prev_y = Some((line.page, line.y));
@@ -144,7 +145,7 @@ pub(crate) fn compute_paragraph_threshold(lines: &[TextLine], base_size: f32) ->
         return fallback;
     }
 
-    gaps.sort_by(|a, b| a.total_cmp(b));
+    gaps.sort_by(f32::total_cmp);
 
     let median = gaps[gaps.len() / 2];
     let threshold = (median * 1.3).max(base_size * 1.5);
@@ -164,14 +165,14 @@ pub(crate) fn compute_paragraph_threshold(lines: &[TextLine], base_size: f32) ->
 ///
 /// Returns tiers sorted largest-first (tier 0 = H1, tier 1 = H2, …).
 /// Sizes within 0.5pt are clustered into the same tier. Capped at 4 tiers.
-pub(crate) fn compute_heading_tiers(lines: &[TextLine], base_size: f32) -> Vec<f32> {
+pub(super) fn compute_heading_tiers(lines: &[TextLine], base_size: f32) -> Vec<f32> {
     let mut heading_sizes: Vec<f32> = Vec::new();
 
     for line in lines {
-        if let Some(first) = line.items.first() {
-            if first.font_size / base_size >= 1.2 {
-                heading_sizes.push(first.font_size);
-            }
+        if let Some(first) = line.items.first()
+            && first.font_size / base_size >= 1.2
+        {
+            heading_sizes.push(first.font_size);
         }
     }
 
@@ -193,7 +194,7 @@ pub(crate) fn compute_heading_tiers(lines: &[TextLine], base_size: f32) -> Vec<f
 ///
 /// When tiers are available, maps tier 0→H1, tier 1→H2, etc.
 /// Falls back to ratio-based thresholds when no tiers exist.
-pub(crate) fn detect_header_level(
+pub(super) fn detect_header_level(
     font_size: f32,
     base_size: f32,
     heading_tiers: &[f32],

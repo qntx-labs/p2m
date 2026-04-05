@@ -58,7 +58,7 @@ impl UnionFind {
 }
 
 /// Check if two rects overlap after expanding each by `tol` on all sides.
-pub(crate) fn rects_overlap(a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32), tol: f32) -> bool {
+pub fn rects_overlap(a: &(f32, f32, f32, f32), b: &(f32, f32, f32, f32), tol: f32) -> bool {
     // a and b are (x, y, w, h) where (x,y) is bottom-left corner
     let (ax, ay, aw, ah) = *a;
     let (bx, by, bw, bh) = *b;
@@ -88,7 +88,7 @@ const MAX_CLUSTER_RECTS: usize = 2000;
 /// Skips overlap checks for rects whose component has already exceeded
 /// [`MAX_CLUSTER_RECTS`], so pages with tens of thousands of vector-drawing
 /// rects complete in milliseconds instead of minutes.
-pub(crate) fn cluster_rects(
+pub fn cluster_rects(
     rects: &[(f32, f32, f32, f32)],
     tolerance: f32,
     min_size: usize,
@@ -149,12 +149,11 @@ fn split_wide_cluster(
     // Merge overlapping intervals to find contiguous X-bands
     let mut merged: Vec<(f32, f32)> = Vec::new();
     for (start, end) in &intervals {
-        if let Some(last) = merged.last_mut() {
-            if *start <= last.1 + 1.0 {
+        if let Some(last) = merged.last_mut()
+            && *start <= last.1 + 1.0 {
                 last.1 = last.1.max(*end);
                 continue;
             }
-        }
         merged.push((*start, *end));
     }
 
@@ -169,7 +168,7 @@ fn split_wide_cluster(
         let gap = merged[i].0 - merged[i - 1].1;
         if gap > best_gap {
             best_gap = gap;
-            best_split_x = (merged[i - 1].1 + merged[i].0) / 2.0;
+            best_split_x = f32::midpoint(merged[i - 1].1, merged[i].0);
         }
     }
 
@@ -262,7 +261,7 @@ pub fn detect_tables_from_rects(
     // background fills stand out clearly.
     if page_rects.len() >= 6 {
         let mut widths: Vec<f32> = page_rects.iter().map(|&(_, _, w, _)| w).collect();
-        widths.sort_by(|a, b| a.total_cmp(b));
+        widths.sort_by(f32::total_cmp);
         let median_width = widths[widths.len() / 2];
         let width_threshold = median_width * 10.0;
         let before = page_rects.len();
@@ -333,7 +332,7 @@ pub fn detect_tables_from_rects(
         // cluster they overlap, so grid detection still has their edges.
         let is_page_bg = {
             let mut heights: Vec<f32> = page_rects.iter().map(|&(_, _, _, h)| h).collect();
-            heights.sort_by(|a, b| a.total_cmp(b));
+            heights.sort_by(f32::total_cmp);
             let median_height = heights[heights.len() / 2];
             let height_threshold = median_height * 20.0;
             let flags: Vec<bool> = page_rects
@@ -404,7 +403,7 @@ pub fn detect_tables_from_rects(
         // text-based column detection.
         let only_narrow = !tables.is_empty() && tables.iter().all(|t| t.columns.len() <= 3);
         if tables.is_empty() || only_narrow {
-            let total_clustered: usize = clusters.iter().map(|c| c.len()).sum();
+            let total_clustered: usize = clusters.iter().map(Vec::len).sum();
             if clusters.len() >= 3 && total_clustered >= 50 {
                 debug!(
                     "page {}: trying merged-cluster fallback ({} clusters, {} rects{})",
@@ -441,13 +440,12 @@ pub fn detect_tables_from_rects(
                 failed_clusters.len()
             );
             for fc_rects in &failed_clusters {
-                if fc_rects.len() >= 6 {
-                    if let Some(table) =
+                if fc_rects.len() >= 6
+                    && let Some(table) =
                         detect_row_stripe_table_from_cell_rects(items, fc_rects, page)
                     {
                         tables.push(table);
                     }
-                }
             }
         }
 
@@ -455,8 +453,8 @@ pub fn detect_tables_from_rects(
         // (row stripes don't overlap so each is its own cluster of 1),
         // try all page rects directly as a row-stripe table.
         // Require ≥15 rects and ≥10 result rows to avoid decorative fill false positives.
-        if tables.is_empty() && clusters.is_empty() && page_rects.len() >= 15 {
-            if let Some(table) = detect_row_stripe_table(items, &page_rects, page) {
+        if tables.is_empty() && clusters.is_empty() && page_rects.len() >= 15
+            && let Some(table) = detect_row_stripe_table(items, &page_rects, page) {
                 if table.rows.len() >= 10 {
                     debug!(
                         "page {}: row-stripe fallback succeeded ({} rects, {} rows)",
@@ -473,7 +471,6 @@ pub fn detect_tables_from_rects(
                     );
                 }
             }
-        }
     }
 
     if tables.is_empty() {
@@ -626,7 +623,7 @@ fn merge_overlapping_hints(mut hints: Vec<RectHintRegion>) -> Vec<RectHintRegion
         let mut any_merged = false;
         for hint in &hints {
             let mut did_merge = false;
-            for existing in merged.iter_mut() {
+            for existing in &mut merged {
                 // Check Y overlap (>50% of smaller span)
                 let y_overlap =
                     existing.y_top.min(hint.y_top) - existing.y_bottom.max(hint.y_bottom);
@@ -685,7 +682,7 @@ fn extract_hint_region(group_rects: &[(f32, f32, f32, f32)]) -> Option<RectHintR
 
     // Compute median height to identify cell-sized rects
     let mut heights: Vec<f32> = group_rects.iter().map(|&(_, _, _, h)| h).collect();
-    heights.sort_by(|a, b| a.total_cmp(b));
+    heights.sort_by(f32::total_cmp);
     let median_h = heights[heights.len() / 2];
 
     // Keep only cell-sized rects (height ≤ 4× median)
@@ -729,7 +726,7 @@ fn extract_hint_region(group_rects: &[(f32, f32, f32, f32)]) -> Option<RectHintR
 ///
 /// Contains the grid-detection logic: snap edges, fill-ratio check,
 /// assign items to grid, content density validation.
-pub(crate) fn detect_table_from_rect_group(
+pub fn detect_table_from_rect_group(
     items: &[TextItem],
     group_rects: &[(f32, f32, f32, f32)],
     page: u32,
@@ -811,7 +808,7 @@ enum GridResult {
 }
 
 /// Core grid-building logic.  `skip_rects[i]` marks rects to exclude from
-/// X-edge extraction and propagate_merged_cells (but they're still used for
+/// X-edge extraction and `propagate_merged_cells` (but they're still used for
 /// fill-ratio checking).  When `strict` is true, apply higher thresholds
 /// for non-empty rows and content density to avoid false positives.
 fn try_build_grid(
@@ -857,7 +854,7 @@ fn try_build_grid(
 
     // Sort column edges left-to-right, row edges top-to-bottom (highest Y first for PDF)
     let mut col_edges = x_edges;
-    col_edges.sort_by(|a, b| a.total_cmp(b));
+    col_edges.sort_by(f32::total_cmp);
     let mut row_edges = y_edges;
     row_edges.sort_by(|a, b| b.total_cmp(a));
 
@@ -872,7 +869,7 @@ fn try_build_grid(
     // boxes produce huge sparse grids.  Statistical lookup tables (e.g. MWU,
     // chi-square) can legitimately have 20+ columns, so allow up to 25.
     if num_cols > 25 {
-        debug!("  rejected: {} columns > 25", num_cols);
+        debug!("  rejected: {num_cols} columns > 25");
         return GridResult::Failed;
     }
 
@@ -909,7 +906,7 @@ fn try_build_grid(
 
     // Require at least 30% of cells to be backed by rects
     if fill_ratio < 0.3 {
-        debug!("  rejected: fill ratio {:.2} < 0.30", fill_ratio);
+        debug!("  rejected: fill ratio {fill_ratio:.2} < 0.30");
         return GridResult::Failed;
     }
 
@@ -927,10 +924,10 @@ fn try_build_grid(
 
     // Compute column centers and row centers for the Table struct
     let columns: Vec<f32> = (0..num_cols)
-        .map(|c| (col_edges[c] + col_edges[c + 1]) / 2.0)
+        .map(|c| f32::midpoint(col_edges[c], col_edges[c + 1]))
         .collect();
     let rows: Vec<f32> = (0..num_rows)
-        .map(|r| (row_edges[r] + row_edges[r + 1]) / 2.0)
+        .map(|r| f32::midpoint(row_edges[r], row_edges[r + 1]))
         .collect();
 
     // Skip if no text was assigned
@@ -949,8 +946,7 @@ fn try_build_grid(
     let min_rows = if strict { num_rows / 2 } else { 2 };
     if non_empty_rows < min_rows {
         debug!(
-            "  rejected: only {} non-empty rows (need {})",
-            non_empty_rows, min_rows
+            "  rejected: only {non_empty_rows} non-empty rows (need {min_rows})"
         );
         return GridResult::FewNonEmptyRows;
     }
@@ -978,13 +974,12 @@ fn try_build_grid(
         let max_cell_len = cells
             .iter()
             .flat_map(|row| row.iter())
-            .map(|c| c.len())
+            .map(String::len)
             .max()
             .unwrap_or(0);
         if max_cell_len > 200 {
             debug!(
-                "  rejected: max cell length {} > 200 (likely paragraph text)",
-                max_cell_len
+                "  rejected: max cell length {max_cell_len} > 200 (likely paragraph text)"
             );
             return GridResult::Failed;
         }
@@ -1015,7 +1010,7 @@ fn try_build_grid(
             .iter()
             .any(|row| row.get(col).is_some_and(|c| !c.trim().is_empty()));
         if !col_has_content {
-            debug!("  rejected: interior column {} is completely empty", col);
+            debug!("  rejected: interior column {col} is completely empty");
             return GridResult::Failed;
         }
     }
@@ -1046,17 +1041,16 @@ fn try_build_grid(
 }
 
 /// Deduplicate nearby edge values within a tolerance, returning sorted unique edges.
-pub(crate) fn snap_edges(values: &[f32], tolerance: f32) -> Vec<f32> {
+pub fn snap_edges(values: &[f32], tolerance: f32) -> Vec<f32> {
     let mut sorted: Vec<f32> = values.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
+    sorted.sort_by(f32::total_cmp);
 
     let mut snapped: Vec<f32> = Vec::new();
     for &v in &sorted {
-        if let Some(last) = snapped.last() {
-            if (v - *last).abs() <= tolerance {
+        if let Some(last) = snapped.last()
+            && (v - *last).abs() <= tolerance {
                 continue; // Skip — too close to previous edge
             }
-        }
         snapped.push(v);
     }
     snapped
@@ -1066,7 +1060,7 @@ pub(crate) fn snap_edges(values: &[f32], tolerance: f32) -> Vec<f32> {
 ///
 /// Returns `(cells, item_indices)` where `cells[row][col]` is the cell text
 /// and `item_indices` lists the original item indices that were consumed.
-pub(crate) fn assign_items_to_grid(
+pub fn assign_items_to_grid(
     items: &[TextItem],
     col_edges: &[f32],
     row_edges: &[f32],
@@ -1204,7 +1198,7 @@ fn is_row_stripe_pattern(rects: &[(f32, f32, f32, f32)]) -> bool {
     }
 
     let mut widths: Vec<f32> = rects.iter().map(|&(_, _, w, _)| w).collect();
-    widths.sort_by(|a, b| a.total_cmp(b));
+    widths.sort_by(f32::total_cmp);
     let median_width = widths[widths.len() / 2];
 
     // Must be page-spanning (>200pt)
@@ -1312,7 +1306,7 @@ fn detect_row_stripe_table(
 
     // Midpoints between adjacent column centers
     for pair in columns.windows(2) {
-        col_edges.push((pair[0] + pair[1]) / 2.0);
+        col_edges.push(f32::midpoint(pair[0], pair[1]));
     }
 
     // Right edge: maximum item right edge plus small padding
@@ -1349,8 +1343,7 @@ fn detect_row_stripe_table(
         .count();
     if non_empty_rows < 2 {
         debug!(
-            "  row-stripe rejected: only {} non-empty rows",
-            non_empty_rows
+            "  row-stripe rejected: only {non_empty_rows} non-empty rows"
         );
         return None;
     }
@@ -1365,8 +1358,7 @@ fn detect_row_stripe_table(
     let content_ratio = non_empty_cells as f32 / total_cells;
     if content_ratio < 0.40 {
         debug!(
-            "  row-stripe rejected: content ratio {:.2} < 0.40",
-            content_ratio
+            "  row-stripe rejected: content ratio {content_ratio:.2} < 0.40"
         );
         return None;
     }
@@ -1377,7 +1369,7 @@ fn detect_row_stripe_table(
     let max_cell_len = cells
         .iter()
         .flat_map(|row| row.iter())
-        .map(|c| c.len())
+        .map(String::len)
         .max()
         .unwrap_or(0);
     // Allow longer cells for multi-column tables (descriptions in one column
@@ -1386,8 +1378,7 @@ fn detect_row_stripe_table(
     let max_allowed = if num_cols >= 3 { 2000 } else { 500 };
     if max_cell_len > max_allowed {
         debug!(
-            "  row-stripe rejected: max cell length {} > {} (layout background)",
-            max_cell_len, max_allowed
+            "  row-stripe rejected: max cell length {max_cell_len} > {max_allowed} (layout background)"
         );
         return None;
     }
@@ -1412,7 +1403,7 @@ fn detect_row_stripe_table(
             .iter()
             .any(|row| row.get(col).is_some_and(|c| !c.trim().is_empty()));
         if !col_has_content {
-            debug!("  row-stripe rejected: interior column {} is empty", col);
+            debug!("  row-stripe rejected: interior column {col} is empty");
             return None;
         }
     }
@@ -1429,10 +1420,10 @@ fn detect_row_stripe_table(
     let num_cols = col_edges.len() - 1;
 
     let column_centers: Vec<f32> = (0..num_cols)
-        .map(|c| (col_edges[c] + col_edges[c + 1]) / 2.0)
+        .map(|c| f32::midpoint(col_edges[c], col_edges[c + 1]))
         .collect();
     let row_centers: Vec<f32> = (0..num_rows)
-        .map(|r| (row_edges[r] + row_edges[r + 1]) / 2.0)
+        .map(|r| f32::midpoint(row_edges[r], row_edges[r + 1]))
         .collect();
 
     debug!(
@@ -1508,7 +1499,7 @@ fn detect_row_stripe_table_from_cell_rects(
         // Cluster Y positions using median font height as threshold
         let median_h = {
             let mut hs: Vec<f32> = region_items.iter().map(|i| i.height).collect();
-            hs.sort_by(|a, b| a.total_cmp(b));
+            hs.sort_by(f32::total_cmp);
             hs[hs.len() / 2]
         };
         let mut ys: Vec<f32> = region_items.iter().map(|i| i.y).collect();
@@ -1521,8 +1512,8 @@ fn detect_row_stripe_table_from_cell_rects(
         for &y in &ys[1..] {
             if (cluster_sum / cluster_count - y).abs() > threshold {
                 let center = cluster_sum / cluster_count;
-                edges.push(center + median_h * 0.5);
-                edges.push(center - median_h * 0.5);
+                edges.push(median_h.mul_add(0.5, center));
+                edges.push(median_h.mul_add(-0.5, center));
                 cluster_start = y;
                 cluster_sum = y;
                 cluster_count = 1.0;
@@ -1532,8 +1523,8 @@ fn detect_row_stripe_table_from_cell_rects(
             }
         }
         let center = cluster_sum / cluster_count;
-        edges.push(center + median_h * 0.5);
-        edges.push(center - median_h * 0.5);
+        edges.push(median_h.mul_add(0.5, center));
+        edges.push(median_h.mul_add(-0.5, center));
         let _ = cluster_start; // suppress unused warning
         edges = snap_edges(&edges, 3.0);
         edges.sort_by(|a, b| b.total_cmp(a));
@@ -1546,7 +1537,7 @@ fn detect_row_stripe_table_from_cell_rects(
     // Compute bounding box from non-full-page rects
     let median_h = {
         let mut heights: Vec<f32> = group_rects.iter().map(|&(_, _, _, h)| h).collect();
-        heights.sort_by(|a, b| a.total_cmp(b));
+        heights.sort_by(f32::total_cmp);
         heights[heights.len() / 2]
     };
     let content_rects: Vec<_> = group_rects
@@ -1596,7 +1587,7 @@ fn detect_row_stripe_table_from_cell_rects(
     let min_x = page_items.iter().map(|(_, i)| i.x).reduce(f32::min)?;
     col_edges.push(min_x - 5.0);
     for pair in columns.windows(2) {
-        col_edges.push((pair[0] + pair[1]) / 2.0);
+        col_edges.push(f32::midpoint(pair[0], pair[1]));
     }
     let max_x_right = page_items
         .iter()
@@ -1628,8 +1619,7 @@ fn detect_row_stripe_table_from_cell_rects(
         .count();
     if non_empty_rows < 2 {
         debug!(
-            "  cell-rect rejected: only {} non-empty rows",
-            non_empty_rows
+            "  cell-rect rejected: only {non_empty_rows} non-empty rows"
         );
         return None;
     }
@@ -1657,13 +1647,12 @@ fn detect_row_stripe_table_from_cell_rects(
     let max_cell_len = cells
         .iter()
         .flat_map(|row| row.iter())
-        .map(|c| c.len())
+        .map(String::len)
         .max()
         .unwrap_or(0);
     if max_cell_len > 500 {
         debug!(
-            "  cell-rect rejected: max cell length {} > 500",
-            max_cell_len
+            "  cell-rect rejected: max cell length {max_cell_len} > 500"
         );
         return None;
     }
@@ -1671,17 +1660,16 @@ fn detect_row_stripe_table_from_cell_rects(
     // Reject wildly disproportionate grids (e.g. 68x6 from decorative rects)
     if num_rows > 20 && num_cols < 4 {
         debug!(
-            "  cell-rect rejected: disproportionate grid {}x{}",
-            num_rows, num_cols
+            "  cell-rect rejected: disproportionate grid {num_rows}x{num_cols}"
         );
         return None;
     }
 
     let column_centers: Vec<f32> = (0..num_cols)
-        .map(|c| (col_edges[c] + col_edges[c + 1]) / 2.0)
+        .map(|c| f32::midpoint(col_edges[c], col_edges[c + 1]))
         .collect();
     let row_centers: Vec<f32> = (0..num_rows)
-        .map(|r| (row_edges[r] + row_edges[r + 1]) / 2.0)
+        .map(|r| f32::midpoint(row_edges[r], row_edges[r + 1]))
         .collect();
 
     debug!(
@@ -1777,7 +1765,7 @@ fn detect_merged_cluster_table(
         .unwrap();
     col_edges.push(min_x - 5.0);
     for pair in columns.windows(2) {
-        col_edges.push((pair[0] + pair[1]) / 2.0);
+        col_edges.push(f32::midpoint(pair[0], pair[1]));
     }
     let max_x_right = page_items
         .iter()
@@ -1812,8 +1800,7 @@ fn detect_merged_cluster_table(
         .count();
     if non_empty_rows < 2 {
         debug!(
-            "  merged-cluster rejected: only {} non-empty rows",
-            non_empty_rows
+            "  merged-cluster rejected: only {non_empty_rows} non-empty rows"
         );
         return None;
     }
@@ -1828,8 +1815,7 @@ fn detect_merged_cluster_table(
     let content_ratio = non_empty_cells as f32 / total_cells;
     if content_ratio < 0.40 {
         debug!(
-            "  merged-cluster rejected: content ratio {:.2} < 0.40",
-            content_ratio
+            "  merged-cluster rejected: content ratio {content_ratio:.2} < 0.40"
         );
         return None;
     }
@@ -1839,13 +1825,12 @@ fn detect_merged_cluster_table(
     let max_cell_len = cells
         .iter()
         .flat_map(|row| row.iter())
-        .map(|c| c.len())
+        .map(String::len)
         .max()
         .unwrap_or(0);
     if max_cell_len > 500 {
         debug!(
-            "  merged-cluster rejected: max cell length {} > 500 (layout background)",
-            max_cell_len
+            "  merged-cluster rejected: max cell length {max_cell_len} > 500 (layout background)"
         );
         return None;
     }
@@ -1856,16 +1841,16 @@ fn detect_merged_cluster_table(
             .iter()
             .any(|row| row.get(col).is_some_and(|c| !c.trim().is_empty()));
         if !col_has_content {
-            debug!("  merged-cluster rejected: column {} is empty", col);
+            debug!("  merged-cluster rejected: column {col} is empty");
             return None;
         }
     }
 
     let column_centers: Vec<f32> = (0..num_cols)
-        .map(|c| (col_edges[c] + col_edges[c + 1]) / 2.0)
+        .map(|c| f32::midpoint(col_edges[c], col_edges[c + 1]))
         .collect();
     let row_centers: Vec<f32> = (0..num_rows)
-        .map(|r| (row_edges[r] + row_edges[r + 1]) / 2.0)
+        .map(|r| f32::midpoint(row_edges[r], row_edges[r + 1]))
         .collect();
 
     debug!(
@@ -1890,7 +1875,7 @@ fn detect_merged_cluster_table(
 /// (no need for anti-paragraph safeguards).
 fn cluster_x_positions(items: &[(usize, &TextItem)], min_threshold: f32) -> Vec<f32> {
     let mut x_positions: Vec<f32> = items.iter().map(|(_, i)| i.x).collect();
-    x_positions.sort_by(|a, b| a.total_cmp(b));
+    x_positions.sort_by(f32::total_cmp);
 
     if x_positions.is_empty() {
         return vec![];
@@ -1937,7 +1922,7 @@ fn cluster_x_positions(items: &[(usize, &TextItem)], min_threshold: f32) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ItemKind, PageNum};
+    use crate::types::ItemKind;
 
     fn make_item(text: &str, x: f32, y: f32, font_size: f32) -> TextItem {
         TextItem {
@@ -2374,7 +2359,7 @@ mod tests {
     fn test_propagate_merged_cells_empty_cells_preserved() {
         let col_edges = vec![0.0, 50.0];
         let row_edges = vec![100.0, 80.0, 60.0];
-        let mut cells = vec![vec!["Text".to_string()], vec!["".to_string()]];
+        let mut cells = vec![vec!["Text".to_string()], vec![String::new()]];
         // Rect spanning both rows
         let group_rects = vec![(0.0, 60.0, 50.0, 40.0)];
         let skip = vec![false];
@@ -2529,7 +2514,7 @@ mod tests {
     #[test]
     fn test_extract_hint_region_too_many_rects() {
         let rects: Vec<(f32, f32, f32, f32)> = (0..10)
-            .map(|i| (10.0, 100.0 + i as f32 * 30.0, 200.0, 25.0))
+            .map(|i| (10.0, (i as f32).mul_add(30.0, 100.0), 200.0, 25.0))
             .collect();
         assert!(extract_hint_region(&rects).is_none());
     }
@@ -2591,7 +2576,7 @@ mod tests {
     fn no_split_single_band() {
         // All rects overlap in X → single merged interval, no gap
         let rects: Vec<(f32, f32, f32, f32)> = (0..12)
-            .map(|i| (10.0 + i as f32 * 5.0, i as f32 * 20.0, 40.0, 15.0))
+            .map(|i| ((i as f32).mul_add(5.0, 10.0), i as f32 * 20.0, 40.0, 15.0))
             .collect();
         assert!(split_wide_cluster(&rects, 15.0, 6).is_none());
     }
@@ -2608,8 +2593,8 @@ mod tests {
         for row in 0..6 {
             for col in 0..6 {
                 page_rects.push((
-                    50.0 + col as f32 * 12.0,
-                    100.0 + row as f32 * 12.0,
+                    (col as f32).mul_add(12.0, 50.0),
+                    (row as f32).mul_add(12.0, 100.0),
                     10.0,
                     10.0,
                 ));
@@ -2619,17 +2604,17 @@ mod tests {
         for row in 0..6 {
             for col in 0..6 {
                 page_rects.push((
-                    250.0 + col as f32 * 12.0,
-                    100.0 + row as f32 * 12.0,
+                    (col as f32).mul_add(12.0, 250.0),
+                    (row as f32).mul_add(12.0, 100.0),
                     10.0,
                     10.0,
                 ));
             }
         }
         let items: Vec<TextItem> = vec![];
-        let rects: Vec<crate::types::Rect> = page_rects
+        let rects: Vec<Rect> = page_rects
             .iter()
-            .map(|&(x, y, w, h)| crate::types::Rect {
+            .map(|&(x, y, w, h)| Rect {
                 x,
                 y,
                 width: w,
@@ -2657,17 +2642,17 @@ mod tests {
         for row in 0..6 {
             for col in 0..6 {
                 page_rects.push((
-                    50.0 + col as f32 * 12.0,
-                    100.0 + row as f32 * 12.0,
+                    (col as f32).mul_add(12.0, 50.0),
+                    (row as f32).mul_add(12.0, 100.0),
                     10.0,
                     10.0,
                 ));
             }
         }
         let items: Vec<TextItem> = vec![];
-        let rects: Vec<crate::types::Rect> = page_rects
+        let rects: Vec<Rect> = page_rects
             .iter()
-            .map(|&(x, y, w, h)| crate::types::Rect {
+            .map(|&(x, y, w, h)| Rect {
                 x,
                 y,
                 width: w,
@@ -2683,9 +2668,9 @@ mod tests {
     #[test]
     fn no_hint_too_few_rects() {
         // 5 rects (< 10 threshold for large-cluster hints, also < 6 for clustering)
-        let rects: Vec<crate::types::Rect> = (0..5)
-            .map(|i| crate::types::Rect {
-                x: 50.0 + i as f32 * 30.0,
+        let rects: Vec<Rect> = (0..5)
+            .map(|i| Rect {
+                x: (i as f32).mul_add(30.0, 50.0),
                 y: 100.0,
                 width: 20.0,
                 height: 20.0,
@@ -2704,7 +2689,7 @@ mod tests {
         // Rects spanning > 400pt width → no hint
         let mut page_rects = Vec::new();
         for i in 0..12 {
-            page_rects.push(crate::types::Rect {
+            page_rects.push(Rect {
                 x: i as f32 * 40.0,
                 y: 100.0,
                 width: 38.0,
@@ -2838,9 +2823,9 @@ mod tests {
         for row in 0..4 {
             for col in 0..3 {
                 items.push(TextItem {
-                    text: format!("cell{}_{}", row, col),
-                    x: 60.0 + col as f32 * 120.0,
-                    y: 120.0 + row as f32 * 40.0,
+                    text: format!("cell{row}_{col}"),
+                    x: (col as f32).mul_add(120.0, 60.0),
+                    y: (row as f32).mul_add(40.0, 120.0),
                     width: 50.0,
                     height: 10.0,
                     font: String::new(),
@@ -2848,14 +2833,14 @@ mod tests {
                     page: crate::types::PageNum::new(1),
                     bold: false,
                     italic: false,
-                    kind: crate::types::ItemKind::Text,
+                    kind: ItemKind::Text,
                     mcid: None,
                 });
             }
         }
-        let rects: Vec<crate::types::Rect> = page_rects
+        let rects: Vec<Rect> = page_rects
             .iter()
-            .map(|&(x, y, w, h)| crate::types::Rect {
+            .map(|&(x, y, w, h)| Rect {
                 x,
                 y,
                 width: w,
@@ -2887,9 +2872,9 @@ mod tests {
             (50.0, 150.0, 400.0, 10.0),
             (50.0, 250.0, 400.0, 10.0),
         ];
-        let rects: Vec<crate::types::Rect> = page_rects
+        let rects: Vec<Rect> = page_rects
             .iter()
-            .map(|&(x, y, w, h)| crate::types::Rect {
+            .map(|&(x, y, w, h)| Rect {
                 x,
                 y,
                 width: w,
@@ -2921,8 +2906,8 @@ mod tests {
         let mut items: Vec<TextItem> = Vec::new();
         for col in 0..8 {
             items.push(TextItem {
-                text: format!("hdr{}", col),
-                x: 55.0 + col as f32 * 50.0,
+                text: format!("hdr{col}"),
+                x: (col as f32).mul_add(50.0, 55.0),
                 y: 655.0,
                 width: 40.0,
                 height: 10.0,
@@ -2931,13 +2916,13 @@ mod tests {
                 page: crate::types::PageNum::new(1),
                 bold: false,
                 italic: false,
-                kind: crate::types::ItemKind::Text,
+                kind: ItemKind::Text,
                 mcid: None,
             });
         }
-        let rects: Vec<crate::types::Rect> = page_rects
+        let rects: Vec<Rect> = page_rects
             .iter()
-            .map(|&(x, y, w, h)| crate::types::Rect {
+            .map(|&(x, y, w, h)| Rect {
                 x,
                 y,
                 width: w,
@@ -2966,7 +2951,7 @@ mod tests {
 
         // Group 1: 7 row stripes at Y=444..537 (Reference Group table)
         for i in 0..7 {
-            let y = 444.0 + i as f32 * 15.5;
+            let y = (i as f32).mul_add(15.5, 444.0);
             rects.push(Rect {
                 x: 44.0,
                 y,
@@ -2978,7 +2963,7 @@ mod tests {
 
         // Group 2: 4 row stripes at Y=176..238 (smaller table)
         for i in 0..4 {
-            let y = 176.0 + i as f32 * 15.5;
+            let y = (i as f32).mul_add(15.5, 176.0);
             rects.push(Rect {
                 x: 44.0,
                 y,
@@ -3002,7 +2987,7 @@ mod tests {
         // Items in group 1 region for row-stripe detection
         let mut items = Vec::new();
         for i in 0..7 {
-            let y = 449.0 + i as f32 * 15.5;
+            let y = (i as f32).mul_add(15.5, 449.0);
             items.push(make_item("Company Name", 50.0, y, 9.0));
             items.push(make_item("P", 320.0, y, 9.0));
             items.push(make_item("P", 450.0, y, 9.0));

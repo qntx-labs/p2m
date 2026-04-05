@@ -29,7 +29,7 @@ pub fn detect_tables_from_lines(items: &[TextItem], lines: &[Line], page: u32) -
     for line in &page_lines {
         let dx = (line.x2 - line.x1).abs();
         let dy = (line.y2 - line.y1).abs();
-        let length = (dx * dx + dy * dy).sqrt();
+        let length = dx.hypot(dy);
 
         // Skip very short lines (decorations, tick marks)
         if length < 20.0 {
@@ -38,13 +38,13 @@ pub fn detect_tables_from_lines(items: &[TextItem], lines: &[Line], page: u32) -
 
         if dx > 0.01 && dy / dx <= angle_tolerance {
             // Horizontal line
-            let y = (line.y1 + line.y2) / 2.0;
+            let y = f32::midpoint(line.y1, line.y2);
             let x_min = line.x1.min(line.x2);
             let x_max = line.x1.max(line.x2);
             horizontals.push((y, x_min, x_max));
         } else if dy > 0.01 && dx / dy <= angle_tolerance {
             // Vertical line
-            let x = (line.x1 + line.x2) / 2.0;
+            let x = f32::midpoint(line.x1, line.x2);
             let y_min = line.y1.min(line.y2);
             let y_max = line.y1.max(line.y2);
             verticals.push((x, y_min, y_max));
@@ -189,7 +189,7 @@ pub fn detect_tables_from_lines(items: &[TextItem], lines: &[Line], page: u32) -
     }
 
     // Content density: at least 15% of cells should have content
-    let num_cols_grid = cells.first().map_or(0, |r| r.len());
+    let num_cols_grid = cells.first().map_or(0, Vec::len);
     let total_cells = cells.len() * num_cols_grid;
     if total_cells > 0 {
         let filled_cells = cells
@@ -276,7 +276,7 @@ pub fn detect_tables_from_lines(items: &[TextItem], lines: &[Line], page: u32) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ItemKind, PageNum};
+    use crate::types::ItemKind;
 
     fn make_item(text: &str, x: f32, y: f32, page: u32) -> TextItem {
         TextItem {

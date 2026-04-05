@@ -14,31 +14,30 @@ fn effective_heading_level(
     heading_tiers: &[f32],
     struct_roles: Option<&HashMap<PageNum, HashMap<i64, StructRole>>>,
 ) -> Option<usize> {
-    if let Some(roles) = struct_roles {
-        if let Some(page_roles) = roles.get(&line.page) {
-            for item in &line.items {
-                if let Some(mcid) = item.mcid {
-                    if let Some(role) = page_roles.get(&mcid) {
-                        let level = match role {
-                            StructRole::H => Some(1),
-                            StructRole::H1 => Some(1),
-                            StructRole::H2 => Some(2),
-                            StructRole::H3 => Some(3),
-                            StructRole::H4 => Some(4),
-                            StructRole::H5 => Some(5),
-                            StructRole::H6 => Some(6),
-                            _ => None,
-                        };
-                        if level.is_some() {
-                            return level;
-                        }
-                    }
+    if let Some(roles) = struct_roles
+        && let Some(page_roles) = roles.get(&line.page)
+    {
+        for item in &line.items {
+            if let Some(mcid) = item.mcid
+                && let Some(role) = page_roles.get(&mcid)
+            {
+                let level = match role {
+                    StructRole::H | StructRole::H1 => Some(1),
+                    StructRole::H2 => Some(2),
+                    StructRole::H3 => Some(3),
+                    StructRole::H4 => Some(4),
+                    StructRole::H5 => Some(5),
+                    StructRole::H6 => Some(6),
+                    _ => None,
+                };
+                if level.is_some() {
+                    return level;
                 }
             }
         }
     }
 
-    let font = line.items.first().map(|i| i.font_size).unwrap_or(base_size);
+    let font = line.items.first().map_or(base_size, |i| i.font_size);
     detect_header_level(font, base_size, heading_tiers)
 }
 
@@ -47,7 +46,7 @@ fn effective_heading_level(
 /// When a heading wraps across multiple text lines, each fragment becomes a
 /// separate `# Header` in the output.  This detects consecutive lines at the
 /// same heading tier on the same page with a small Y gap and merges them.
-pub(crate) fn merge_heading_lines(
+pub(super) fn merge_heading_lines(
     lines: Vec<TextLine>,
     base_size: f32,
     heading_tiers: &[f32],
@@ -61,7 +60,7 @@ pub(crate) fn merge_heading_lines(
 
     for line in lines {
         let line_level = effective_heading_level(&line, base_size, heading_tiers, struct_roles);
-        let line_font = line.items.first().map(|i| i.font_size).unwrap_or(base_size);
+        let line_font = line.items.first().map_or(base_size, |i| i.font_size);
 
         let should_merge = if let (Some(prev), Some(curr_level)) = (result.last(), line_level) {
             let prev_level = effective_heading_level(prev, base_size, heading_tiers, struct_roles);
@@ -78,6 +77,7 @@ pub(crate) fn merge_heading_lines(
         };
 
         if should_merge {
+            #[allow(clippy::unwrap_used)] // should_merge is true only when result.last() is Some
             let prev = result.last_mut().unwrap();
             if let Some(first_item) = line.items.first() {
                 let mut space_item = first_item.clone();
@@ -100,18 +100,19 @@ pub(crate) fn merge_heading_lines(
 /// A drop cap is a single large letter at the start of a paragraph.
 /// Due to PDF coordinate sorting, the drop cap may appear AFTER the line it
 /// belongs to.
-pub(crate) fn merge_drop_caps(lines: Vec<TextLine>, base_size: f32) -> Vec<TextLine> {
+pub(super) fn merge_drop_caps(lines: &[TextLine], base_size: f32) -> Vec<TextLine> {
     let mut result: Vec<TextLine> = Vec::with_capacity(lines.len());
 
-    for line in &lines {
+    for line in lines {
         let text = line.text();
         let trimmed = text.trim();
 
         let is_drop_cap = trimmed.len() <= 2
-            && line.items.first().map(|i| i.font_size).unwrap_or(0.0) >= base_size * 2.5
-            && trimmed.chars().next().is_some_and(|c| c.is_uppercase());
+            && line.items.first().map_or(0.0, |i| i.font_size) >= base_size * 2.5
+            && trimmed.chars().next().is_some_and(char::is_uppercase);
 
         if is_drop_cap {
+            #[allow(clippy::unwrap_used)] // trimmed.len() <= 2 check above ensures non-empty
             let drop_char = trimmed.chars().next().unwrap();
 
             let mut target_idx: Option<usize> = None;
@@ -127,7 +128,7 @@ pub(crate) fn merge_drop_caps(lines: Vec<TextLine>, base_size: f32) -> Vec<TextL
                 if prev_trimmed
                     .chars()
                     .next()
-                    .is_some_and(|c| c.is_lowercase())
+                    .is_some_and(char::is_lowercase)
                 {
                     let is_para_start = if idx == 0 {
                         true
@@ -137,7 +138,7 @@ pub(crate) fn merge_drop_caps(lines: Vec<TextLine>, base_size: f32) -> Vec<TextL
                         !before_trimmed
                             .chars()
                             .next()
-                            .is_some_and(|c| c.is_lowercase())
+                            .is_some_and(char::is_lowercase)
                     };
 
                     if is_para_start {
@@ -147,11 +148,11 @@ pub(crate) fn merge_drop_caps(lines: Vec<TextLine>, base_size: f32) -> Vec<TextL
                 }
             }
 
-            if let Some(idx) = target_idx {
-                if let Some(first_item) = result[idx].items.first_mut() {
-                    let prev_text = first_item.text.trim().to_string();
-                    first_item.text = format!("{drop_char}{prev_text}");
-                }
+            if let Some(idx) = target_idx
+                && let Some(first_item) = result[idx].items.first_mut()
+            {
+                let prev_text = first_item.text.trim().to_string();
+                first_item.text = format!("{drop_char}{prev_text}");
             }
             continue;
         }
@@ -163,24 +164,26 @@ pub(crate) fn merge_drop_caps(lines: Vec<TextLine>, base_size: f32) -> Vec<TextL
 }
 
 /// Normalize whitespace in a string for comparison.
+#[allow(dead_code)]
 fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Normalize text for frequency comparison: collapse whitespace and strip
 /// leading/trailing digit sequences (page numbers).
+#[allow(dead_code)]
 fn normalize_for_comparison(s: &str) -> String {
     let ws = normalize_whitespace(s);
-    let trimmed = ws
+    let result = ws
         .trim_start_matches(|c: char| c.is_ascii_digit())
-        .trim_start();
-    let trimmed = trimmed
+        .trim_start()
         .trim_end_matches(|c: char| c.is_ascii_digit())
         .trim_end();
-    trimmed.to_string()
+    result.to_string()
 }
 
 /// Returns true if the line looks like a list item or heading (should not be stripped).
+#[allow(dead_code)]
 fn is_structural_line(text: &str) -> bool {
     let t = text.trim_start();
     t.starts_with('#')
@@ -192,33 +195,32 @@ fn is_structural_line(text: &str) -> bool {
 }
 
 /// Returns true if a line consists entirely of a single repeated character.
+#[allow(dead_code)]
 fn is_decorative_separator(text: &str) -> bool {
     let mut chars = text.chars();
-    let first = match chars.next() {
-        Some(c) => c,
-        None => return false,
+    let Some(first) = chars.next() else {
+        return false;
     };
     chars.all(|c| c == first)
 }
 
 /// Returns true if the given Y position is among the first or last N distinct
 /// Y positions on the specified page.
+#[allow(dead_code)]
 fn is_y_at_edge(
     y: f32,
     page: PageNum,
     page_sorted_ys: &HashMap<PageNum, Vec<f32>>,
     n: usize,
 ) -> bool {
-    let ys = match page_sorted_ys.get(&page) {
-        Some(ys) => ys,
-        None => return false,
+    let Some(ys) = page_sorted_ys.get(&page) else {
+        return false;
     };
     if ys.len() <= n * 2 {
         return true;
     }
-    let pos = match ys.iter().position(|&py| (py - y).abs() < 0.1) {
-        Some(p) => p,
-        None => return false,
+    let Some(pos) = ys.iter().position(|&py| (py - y).abs() < 0.1) else {
+        return false;
     };
     pos < n || pos >= ys.len() - n
 }
@@ -232,7 +234,15 @@ fn is_y_at_edge(
 /// 4. It consistently appears in the top or bottom N distinct Y positions
 /// 5. Its Y positions across pages have low variance
 /// 6. It is not a decorative separator
-pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec<TextLine> {
+#[allow(
+    dead_code,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::excessive_nesting,
+    clippy::items_after_statements,
+    clippy::too_many_lines,
+)]
+pub(super) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec<TextLine> {
     if lines.is_empty() || page_count < 3 {
         return lines;
     }
@@ -255,10 +265,11 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
         page_sorted_ys.entry(line.page).or_default().push(line.y);
     }
     for ys in page_sorted_ys.values_mut() {
-        ys.sort_by(|a, b| a.total_cmp(b));
+        ys.sort_by(f32::total_cmp);
         ys.dedup();
     }
 
+    #[allow(clippy::cast_precision_loss)]
     let avg_span = {
         let total: f32 = page_y_range.values().map(|(lo, hi)| hi - lo).sum();
         if page_y_range.is_empty() {
@@ -268,6 +279,7 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
         }
     };
 
+    #[allow(clippy::cast_possible_truncation)]
     let mut y_bands: HashMap<(PageNum, i32), Vec<usize>> = HashMap::new();
     for (idx, line) in lines.iter().enumerate() {
         let y_bucket = (line.y * 10.0).round() as i32;
@@ -302,7 +314,7 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
             continue;
         }
         let mut sorted_indices = indices.clone();
-        sorted_indices.sort();
+        sorted_indices.sort_unstable();
         let coalesced: String = sorted_indices
             .iter()
             .map(|&i| lines[i].text())
@@ -384,7 +396,7 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
             continue;
         }
         let mut sorted_indices = indices.clone();
-        sorted_indices.sort();
+        sorted_indices.sort_unstable();
         let coalesced: String = sorted_indices
             .iter()
             .map(|&i| lines[i].text())
@@ -407,7 +419,7 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
             continue;
         }
         let mut sorted_indices = indices.clone();
-        sorted_indices.sort();
+        sorted_indices.sort_unstable();
         let coalesced: String = sorted_indices
             .iter()
             .map(|&i| lines[i].text())
@@ -418,7 +430,7 @@ pub(crate) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec
             let first = first_page_band
                 .get(&normalized)
                 .copied()
-                .unwrap_or(PageNum::new(0));
+                .unwrap_or_else(|| PageNum::new(0));
             if page > first {
                 for &idx in &sorted_indices {
                     removal_set.insert(idx);

@@ -4,12 +4,13 @@ use crate::types::TextItem;
 
 use super::{Table, TableDetectionMode};
 
-pub(crate) fn find_column_boundaries(
+#[allow(dead_code, clippy::cast_precision_loss, clippy::unwrap_used)]
+pub(super) fn find_column_boundaries(
     items: &[(usize, &TextItem)],
     mode: TableDetectionMode,
 ) -> Vec<f32> {
     let mut x_positions: Vec<f32> = items.iter().map(|(_, i)| i.x).collect();
-    x_positions.sort_by(|a, b| a.total_cmp(b));
+    x_positions.sort_by(f32::total_cmp);
 
     if x_positions.is_empty() {
         return vec![];
@@ -43,7 +44,7 @@ pub(crate) fn find_column_boundaries(
         .collect();
 
     if consec_gaps.len() > 2 {
-        consec_gaps.sort_by(|a, b| a.total_cmp(b));
+        consec_gaps.sort_by(f32::total_cmp);
         // Find the biggest jump in the sorted gap sequence — natural break
         // between within-column jitter and between-column spacing.
         // Require at least 3 values on each side to avoid outlier-dominated
@@ -63,9 +64,7 @@ pub(crate) fn find_column_boundaries(
                 best_split = i;
             }
         }
-        let threshold = (consec_gaps[best_split]
-            + consec_gaps[(best_split + 1).min(consec_gaps.len() - 1)])
-            / 2.0;
+        let threshold = f32::midpoint(consec_gaps[best_split], consec_gaps[(best_split + 1).min(consec_gaps.len() - 1)]);
         // Override for tables with a clear bimodal gap pattern:
         // - Dense tables (500+ items, e.g. 24-column train schedule): use
         //   edge-based clustering with the detected threshold.
@@ -149,7 +148,8 @@ pub(crate) fn find_column_boundaries(
 }
 
 /// Find row boundaries by clustering Y positions
-pub(crate) fn find_row_boundaries(items: &[(usize, &TextItem)]) -> Vec<f32> {
+#[allow(dead_code, clippy::cast_precision_loss, clippy::unwrap_used)]
+pub(super) fn find_row_boundaries(items: &[(usize, &TextItem)]) -> Vec<f32> {
     let mut y_positions: Vec<f32> = items.iter().map(|(_, i)| i.y).collect();
     y_positions.sort_by(|a, b| b.total_cmp(a)); // Descending
 
@@ -162,7 +162,7 @@ pub(crate) fn find_row_boundaries(items: &[(usize, &TextItem)]) -> Vec<f32> {
     // inter-row gaps (≥1× font size), preventing row merging in uniform-spaced PDFs.
     let cluster_threshold = {
         let mut font_sizes: Vec<f32> = items.iter().map(|(_, i)| i.font_size).collect();
-        font_sizes.sort_by(|a, b| a.total_cmp(b));
+        font_sizes.sort_by(f32::total_cmp);
         let median_font = font_sizes[font_sizes.len() / 2];
         (median_font * 0.8).max(4.0)
     };
@@ -189,7 +189,8 @@ pub(crate) fn find_row_boundaries(items: &[(usize, &TextItem)]) -> Vec<f32> {
 }
 
 /// Find which column index an X position belongs to
-pub(crate) fn find_column_index(columns: &[f32], x: f32) -> Option<usize> {
+#[allow(dead_code, clippy::unwrap_used)]
+pub(super) fn find_column_index(columns: &[f32], x: f32) -> Option<usize> {
     // Calculate adaptive threshold based on column spacing
     let threshold = if columns.len() >= 2 {
         let min_gap = columns
@@ -215,7 +216,8 @@ pub(crate) fn find_column_index(columns: &[f32], x: f32) -> Option<usize> {
 }
 
 /// Find which row index a Y position belongs to
-pub(crate) fn find_row_index(rows: &[f32], y: f32) -> Option<usize> {
+#[allow(dead_code, clippy::unwrap_used)]
+pub(super) fn find_row_index(rows: &[f32], y: f32) -> Option<usize> {
     let threshold = 15.0;
     rows.iter()
         .enumerate()
@@ -230,8 +232,9 @@ pub(crate) fn find_row_index(rows: &[f32], y: f32) -> Option<usize> {
 }
 
 /// Join cell items with subscript/superscript-aware spacing
-/// Same logic as TextLine::text() but for table cells
-pub(crate) fn join_cell_items(items: &[&TextItem]) -> String {
+/// Same logic as `TextLine::text()` but for table cells
+#[allow(dead_code)]
+pub(super) fn join_cell_items(items: &[&TextItem]) -> String {
     let mut result = String::new();
 
     for (i, item) in items.iter().enumerate() {
@@ -281,10 +284,11 @@ pub(crate) fn join_cell_items(items: &[&TextItem]) -> String {
 /// just above the table's first row.
 ///
 /// PDF tables often have header rows at the body font size while data rows use
-/// a smaller font. Pass 1 (SmallFont) excludes the header because of the
+/// a smaller font. Pass 1 (`SmallFont`) excludes the header because of the
 /// font-size filter. This function looks upward from the table's first row for
 /// body-font items that align with the table's columns, and prepends them.
-pub(crate) fn recover_header_row(
+#[allow(dead_code, clippy::cast_precision_loss, clippy::unwrap_used)]
+pub(super) fn recover_header_row(
     table: &mut Table,
     all_items: &[TextItem],
     small_font_threshold: f32,
@@ -379,7 +383,7 @@ pub(crate) fn recover_header_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ItemKind, PageNum};
+    use crate::types::ItemKind;
 
     fn make_item(text: &str, x: f32, y: f32, font_size: f32) -> TextItem {
         TextItem {
@@ -484,7 +488,7 @@ mod tests {
         let items_data: Vec<TextItem> = (0..10)
             .map(|i| {
                 let x = if i % 2 == 0 { 100.0 } else { 200.0 };
-                make_item("Cell", x, 500.0 - (i as f32 * 20.0), 10.0)
+                make_item("Cell", x, (i as f32).mul_add(-20.0, 500.0), 10.0)
             })
             .collect();
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
@@ -505,7 +509,7 @@ mod tests {
     fn test_find_column_boundaries_body_font_paragraph_rejection() {
         // All items at same X → >60% in one column → rejected in BodyFont mode
         let items_data: Vec<TextItem> = (0..10)
-            .map(|i| make_item("Text", 100.0, 500.0 - (i as f32 * 20.0), 10.0))
+            .map(|i| make_item("Text", 100.0, (i as f32).mul_add(-20.0, 500.0), 10.0))
             .collect();
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
         let cols = find_column_boundaries(&items, TableDetectionMode::BodyFont);
@@ -517,7 +521,7 @@ mod tests {
         // Create 10 items at x=100 and 1 item at x=300
         // The single outlier should be filtered out
         let mut items_data: Vec<TextItem> = (0..10)
-            .map(|i| make_item("Cell", 100.0, 500.0 - (i as f32 * 20.0), 10.0))
+            .map(|i| make_item("Cell", 100.0, (i as f32).mul_add(-20.0, 500.0), 10.0))
             .collect();
         items_data.push(make_item("Lone", 300.0, 500.0, 10.0));
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
@@ -536,11 +540,9 @@ mod tests {
 
     #[test]
     fn test_find_row_boundaries_descending_order() {
-        let items_data = vec![
-            make_item("A", 100.0, 500.0, 10.0),
+        let items_data = [make_item("A", 100.0, 500.0, 10.0),
             make_item("B", 100.0, 480.0, 10.0),
-            make_item("C", 100.0, 460.0, 10.0),
-        ];
+            make_item("C", 100.0, 460.0, 10.0)];
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
         let rows = find_row_boundaries(&items);
         assert_eq!(rows.len(), 3);
@@ -552,11 +554,9 @@ mod tests {
     #[test]
     fn test_find_row_boundaries_clustering() {
         // Items close together should cluster into one row
-        let items_data = vec![
-            make_item("A", 100.0, 500.0, 10.0),
+        let items_data = [make_item("A", 100.0, 500.0, 10.0),
             make_item("B", 200.0, 501.0, 10.0),
-            make_item("C", 100.0, 480.0, 10.0),
-        ];
+            make_item("C", 100.0, 480.0, 10.0)];
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
         let rows = find_row_boundaries(&items);
         assert_eq!(rows.len(), 2); // 500 and 501 cluster together
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_find_row_boundaries_single_row() {
-        let items_data = vec![make_item("A", 100.0, 500.0, 10.0)];
+        let items_data = [make_item("A", 100.0, 500.0, 10.0)];
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
         let rows = find_row_boundaries(&items);
         assert_eq!(rows.len(), 1);
@@ -573,11 +573,9 @@ mod tests {
 
     #[test]
     fn test_find_row_boundaries_items_at_same_y() {
-        let items_data = vec![
-            make_item("A", 100.0, 500.0, 10.0),
+        let items_data = [make_item("A", 100.0, 500.0, 10.0),
             make_item("B", 200.0, 500.0, 10.0),
-            make_item("C", 300.0, 500.0, 10.0),
-        ];
+            make_item("C", 300.0, 500.0, 10.0)];
         let items: Vec<(usize, &TextItem)> = items_data.iter().enumerate().collect();
         let rows = find_row_boundaries(&items);
         assert_eq!(rows.len(), 1);
@@ -722,16 +720,16 @@ mod tests {
         let mut items: Vec<(usize, TextItem)> = Vec::new();
         let mut rng_offset = 0.0f32;
         for col in 0..24 {
-            let base_x = 50.0 + col as f32 * 26.0;
+            let base_x = (col as f32).mul_add(26.0, 50.0);
             // ~50 items per column with ±2pt jitter to simulate per-glyph text
             for row in 0..50 {
                 rng_offset = (rng_offset + 0.7) % 4.0; // deterministic pseudo-jitter
                 let x = base_x + rng_offset - 2.0;
-                let y = 700.0 - row as f32 * 12.0;
+                let y = (row as f32).mul_add(-12.0, 700.0);
                 items.push((
                     0,
                     TextItem {
-                        text: format!("{}", row),
+                        text: format!("{row}"),
                         x,
                         y,
                         width: 8.0,
@@ -762,14 +760,14 @@ mod tests {
         // Normal table with 4 widely-spaced columns — should still work
         let mut items = Vec::new();
         for col in 0..4 {
-            let base_x = 50.0 + col as f32 * 120.0;
+            let base_x = (col as f32).mul_add(120.0, 50.0);
             for row in 0..10 {
                 items.push((
                     0,
                     TextItem {
-                        text: format!("cell_{}_{}", col, row),
-                        x: base_x + (row as f32 * 0.3),
-                        y: 700.0 - row as f32 * 15.0,
+                        text: format!("cell_{col}_{row}"),
+                        x: (row as f32).mul_add(0.3, base_x),
+                        y: (row as f32).mul_add(-15.0, 700.0),
                         width: 40.0,
                         font_size: 10.0,
                         height: 7.0,

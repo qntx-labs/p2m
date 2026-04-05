@@ -4,7 +4,8 @@ use crate::types::TextItem;
 
 /// Check if a whitespace-separated token looks like a financial number.
 /// Must contain at least one digit; all chars must be `0-9 , . ( ) - + %`.
-pub(crate) fn is_numeric_token(tok: &str) -> bool {
+#[allow(dead_code)]
+pub(super) fn is_numeric_token(tok: &str) -> bool {
     if tok.is_empty() {
         return false;
     }
@@ -20,13 +21,15 @@ pub(crate) fn is_numeric_token(tok: &str) -> bool {
 }
 
 /// Check for em-dash, en-dash, or minus used as nil marker in financial tables.
-pub(crate) fn is_dash_token(tok: &str) -> bool {
+#[allow(dead_code)]
+pub(super) fn is_dash_token(tok: &str) -> bool {
     matches!(tok, "\u{2014}" | "\u{2013}" | "-" | "\u{2012}")
 }
 
 /// Returns true if text contains 2+ consecutive alphabetic characters.
 /// Fast early-exit to reject items like `"Land $ 778,177"`.
-pub(crate) fn has_alphabetic_words(text: &str) -> bool {
+#[allow(dead_code)]
+pub(super) fn has_alphabetic_words(text: &str) -> bool {
     let mut consecutive = 0u32;
     for c in text.chars() {
         if c.is_alphabetic() {
@@ -46,7 +49,8 @@ pub(crate) fn has_alphabetic_words(text: &str) -> bool {
 /// - standalone numeric token → one value (`"114,167"`)
 /// - dash token → one value (`"—"`)
 /// - any unrecognized token → return `None` (not a pure-value item)
-pub(crate) fn tokenize_financial_values(text: &str) -> Option<Vec<String>> {
+#[allow(dead_code)]
+pub(super) fn tokenize_financial_values(text: &str) -> Option<Vec<String>> {
     let tokens: Vec<&str> = text.split_whitespace().collect();
     if tokens.is_empty() {
         return None;
@@ -78,9 +82,10 @@ pub(crate) fn tokenize_financial_values(text: &str) -> Option<Vec<String>> {
 }
 
 /// Try to split a consolidated financial item into individual sub-items.
-/// Criteria: width > font_size × 20, no alphabetic words, tokenization yields 3+ values.
+/// Criteria: width > `font_size` × 20, no alphabetic words, tokenization yields 3+ values.
 /// Creates sub-items with evenly-distributed X positions across the original item's span.
-pub(crate) fn try_split_financial_item(item: &TextItem) -> Option<Vec<TextItem>> {
+#[allow(dead_code, clippy::cast_precision_loss)]
+pub(super) fn try_split_financial_item(item: &TextItem) -> Option<Vec<TextItem>> {
     if item.width <= item.font_size * 20.0 {
         return None;
     }
@@ -99,7 +104,7 @@ pub(crate) fn try_split_financial_item(item: &TextItem) -> Option<Vec<TextItem>>
     for (i, val) in values.iter().enumerate() {
         sub_items.push(TextItem {
             text: val.clone(),
-            x: item.x + spacing * i as f32 + spacing * 0.5,
+            x: spacing.mul_add(0.5, spacing.mul_add(i as f32, item.x)),
             y: item.y,
             width: sub_width,
             height: item.height,

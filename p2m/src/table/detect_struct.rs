@@ -13,10 +13,10 @@ use crate::types::TextItem;
 
 use super::Table;
 
-/// Build tables from structure-tree table descriptors by matching MCIDs to TextItems.
+/// Build tables from structure-tree table descriptors by matching MCIDs to `TextItems`.
 ///
 /// Returns tables for the given page.  Tables where fewer than 50% of cells
-/// resolve to TextItems are rejected (stale or broken structure tree).
+/// resolve to `TextItems` are rejected (stale or broken structure tree).
 pub fn detect_tables_from_struct_tree(
     items: &[TextItem],
     struct_tables: &[StructTable],
@@ -29,11 +29,10 @@ pub fn detect_tables_from_struct_tree(
     // Build MCID → item indices for this page
     let mut mcid_to_items: HashMap<i64, Vec<usize>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
-        if item.page.get() == page {
-            if let Some(mcid) = item.mcid {
+        if item.page.get() == page
+            && let Some(mcid) = item.mcid {
                 mcid_to_items.entry(mcid).or_default().push(idx);
             }
-        }
     }
 
     let mut tables = Vec::new();
@@ -84,13 +83,12 @@ pub fn detect_tables_from_struct_tree(
                 // Collect all items for this cell's MCIDs
                 let mut cell_items: Vec<(usize, &TextItem)> = Vec::new();
                 for &(mcid, p) in &cell.mcids {
-                    if p == page {
-                        if let Some(indices) = mcid_to_items.get(&mcid) {
+                    if p == page
+                        && let Some(indices) = mcid_to_items.get(&mcid) {
                             for &idx in indices {
                                 cell_items.push((idx, &items[idx]));
                             }
                         }
-                    }
                 }
 
                 if !cell_items.is_empty() {
@@ -168,8 +166,8 @@ pub fn detect_tables_from_struct_tree(
         let mut col_positions: Vec<f32> = vec![0.0; num_cols];
         for (col, col_pos) in col_positions.iter_mut().enumerate() {
             for row in &page_rows {
-                if col < row.cells.len() {
-                    if let Some(x) = row.cells[col]
+                if col < row.cells.len()
+                    && let Some(x) = row.cells[col]
                         .mcids
                         .iter()
                         .filter(|(_, p)| *p == page)
@@ -181,7 +179,6 @@ pub fn detect_tables_from_struct_tree(
                         *col_pos = x;
                         break;
                     }
-                }
             }
         }
 
@@ -203,7 +200,7 @@ pub fn detect_tables_from_struct_tree(
 mod tests {
     use super::*;
     use crate::pdf::structure_tree::{StructTableCell, StructTableRow};
-    use crate::types::{ItemKind, PageNum};
+    use crate::types::ItemKind;
 
     fn make_item(text: &str, x: f32, y: f32, page: u32, mcid: Option<i64>) -> TextItem {
         TextItem {

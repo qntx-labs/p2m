@@ -25,7 +25,7 @@ fn find_isolated_lines(lines: &[TextLine], base_size: f32, para_threshold: f32) 
         if !(1..=6).contains(&word_count) || trimmed.len() <= 3 {
             continue;
         }
-        let font_size = line.items.first().map(|it| it.font_size).unwrap_or(0.0);
+        let font_size = line.items.first().map_or(0.0, |it| it.font_size);
         if font_size < base_size * 0.95 {
             continue;
         }
@@ -79,7 +79,9 @@ fn find_isolated_lines(lines: &[TextLine], base_size: f32, para_threshold: f32) 
         }
     }
     for (&page, &(total, isolated)) in &page_line_counts {
-        if total > 0 && isolated as f32 / total as f32 > 0.25 {
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = isolated as f32 / total as f32;
+        if total > 0 && ratio > 0.25 {
             set.retain(|&i| lines[i].page != page);
         }
     }
@@ -94,19 +96,19 @@ fn resolve_line_struct_role(
 ) -> Option<StructRole> {
     let page_roles = struct_roles.get(&line.page)?;
     for item in &line.items {
-        if let Some(mcid) = item.mcid {
-            if let Some(role) = page_roles.get(&mcid) {
-                match role {
-                    StructRole::Document
-                    | StructRole::Part
-                    | StructRole::Art
-                    | StructRole::Sect
-                    | StructRole::Div
-                    | StructRole::NonStruct
-                    | StructRole::Span
-                    | StructRole::Private => continue,
-                    _ => return Some(role.clone()),
-                }
+        if let Some(mcid) = item.mcid
+            && let Some(role) = page_roles.get(&mcid)
+        {
+            match role {
+                StructRole::Document
+                | StructRole::Part
+                | StructRole::Art
+                | StructRole::Sect
+                | StructRole::Div
+                | StructRole::NonStruct
+                | StructRole::Span
+                | StructRole::Private => {},
+                _ => return Some(role.clone()),
             }
         }
     }
@@ -114,10 +116,9 @@ fn resolve_line_struct_role(
 }
 
 /// Map a `StructRole` heading variant to a markdown heading level (1–6).
-fn struct_role_heading_level(role: &StructRole) -> Option<usize> {
+const fn struct_role_heading_level(role: &StructRole) -> Option<usize> {
     match role {
-        StructRole::H => Some(1),
-        StructRole::H1 => Some(1),
+        StructRole::H | StructRole::H1 => Some(1),
         StructRole::H2 => Some(2),
         StructRole::H3 => Some(3),
         StructRole::H4 => Some(4),
@@ -128,6 +129,7 @@ fn struct_role_heading_level(role: &StructRole) -> Option<usize> {
 }
 
 /// Merge continuation tables that span across page breaks.
+#[allow(dead_code)]
 pub(super) fn merge_continuation_tables(
     page_tables: &mut HashMap<PageNum, Vec<(f32, String)>>,
     table_only_pages: &HashSet<PageNum>,
@@ -165,11 +167,10 @@ pub(super) fn merge_continuation_tables(
         let mut j = i + 1;
         while j < sorted_pages.len() {
             let next_page = sorted_pages[j];
-            let prev_page = if continuation_pages.is_empty() {
-                first_page
-            } else {
-                *continuation_pages.last().unwrap()
-            };
+            let prev_page = continuation_pages
+                .last()
+                .copied()
+                .unwrap_or(first_page);
             if next_page.get() != prev_page.get() + 1 {
                 break;
             }
@@ -192,16 +193,15 @@ pub(super) fn merge_continuation_tables(
             j += 1;
         }
 
-        if !continuation_pages.is_empty() {
+        if continuation_pages.is_empty() {
+            i += 1;
+        } else {
             let mut extra_rows = String::new();
             for &cont_page in &continuation_pages {
                 if let Some(tables) = page_tables.get(&cont_page) {
-                    let table_md = &tables[0].1;
-                    for (line_idx, line) in table_md.lines().enumerate() {
-                        if line_idx >= 2 {
-                            extra_rows.push_str(line);
-                            extra_rows.push('\n');
-                        }
+                    for line in tables[0].1.lines().skip(2) {
+                        extra_rows.push_str(line);
+                        extra_rows.push('\n');
                     }
                 }
             }
@@ -215,20 +215,19 @@ pub(super) fn merge_continuation_tables(
             }
 
             i = j;
-        } else {
-            i += 1;
         }
     }
 }
 
 /// Count the number of columns in a markdown table by counting `|` in the
 /// separator row.
+#[allow(dead_code)]
 fn count_table_columns(table_md: &str) -> usize {
-    if let Some(sep_line) = table_md.lines().nth(1) {
-        if sep_line.contains("---") {
-            let pipes = sep_line.chars().filter(|&c| c == '|').count();
-            return if pipes >= 2 { pipes - 1 } else { 0 };
-        }
+    if let Some(sep_line) = table_md.lines().nth(1)
+        && sep_line.contains("---")
+    {
+        let pipes = sep_line.chars().filter(|&c| c == '|').count();
+        return if pipes >= 2 { pipes - 1 } else { 0 };
     }
     0
 }
@@ -245,7 +244,7 @@ fn flush_page_tables_and_images(
 ) {
     if let Some(tables) = page_tables.get(&page) {
         for (idx, (_, table_md)) in tables.iter().enumerate() {
-            if !inserted_tables.contains(&(page, idx)) {
+            if inserted_tables.insert((page, idx)) {
                 if *in_paragraph {
                     output.push_str("\n\n");
                     *in_paragraph = false;
@@ -253,13 +252,12 @@ fn flush_page_tables_and_images(
                 output.push('\n');
                 output.push_str(table_md);
                 output.push('\n');
-                inserted_tables.insert((page, idx));
             }
         }
     }
     if let Some(images) = page_images.get(&page) {
         for (idx, (_, image_md)) in images.iter().enumerate() {
-            if !inserted_images.contains(&(page, idx)) {
+            if inserted_images.insert((page, idx)) {
                 if *in_paragraph {
                     output.push_str("\n\n");
                     *in_paragraph = false;
@@ -267,7 +265,6 @@ fn flush_page_tables_and_images(
                 output.push('\n');
                 output.push_str(image_md);
                 output.push('\n');
-                inserted_images.insert((page, idx));
             }
         }
     }
@@ -275,7 +272,13 @@ fn flush_page_tables_and_images(
 
 /// Convert text lines to markdown, inserting tables and images at appropriate
 /// Y positions.
-pub(crate) fn to_markdown_with_tables_and_images(
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::needless_pass_by_value,
+    clippy::shadow_unrelated,
+    clippy::too_many_lines,
+)]
+pub(super) fn to_markdown_with_tables_and_images(
     lines: Vec<TextLine>,
     options: &MarkdownOptions,
     page_tables: HashMap<PageNum, Vec<(f32, String)>>,
@@ -292,9 +295,11 @@ pub(crate) fn to_markdown_with_tables_and_images(
         .base_font_size
         .unwrap_or(font_stats.most_common_size);
 
-    let lines = merge_drop_caps(lines, base_size);
-    let heading_tiers = compute_heading_tiers(&lines, base_size);
-    let lines = merge_heading_lines(lines, base_size, &heading_tiers, struct_roles);
+    let merged = merge_drop_caps(&lines, base_size);
+    let heading_tiers = compute_heading_tiers(&merged, base_size);
+    let processed = merge_heading_lines(merged, base_size, &heading_tiers, struct_roles);
+    drop(lines);
+    let lines = processed;
     let para_threshold = compute_paragraph_threshold(&lines, base_size);
     let isolated_lines = find_isolated_lines(&lines, base_size, para_threshold);
 
@@ -368,14 +373,16 @@ pub(crate) fn to_markdown_with_tables_and_images(
             prev_x = 0.0;
 
             if options.include_page_breaks {
-                output.push_str(&format!("<!-- Page {} -->\n\n", current_page));
+                output.push_str("<!-- Page ");
+                output.push_str(&current_page.to_string());
+                output.push_str(" -->\n\n");
             }
         }
 
         // Insert tables before this line based on Y position
         if let Some(tables) = page_tables.get(&current_page) {
             for (idx, (table_y, table_md)) in tables.iter().enumerate() {
-                if *table_y > line.y && !inserted_tables.contains(&(current_page, idx)) {
+                if *table_y > line.y && inserted_tables.insert((current_page, idx)) {
                     if in_paragraph {
                         output.push_str("\n\n");
                         in_paragraph = false;
@@ -383,7 +390,6 @@ pub(crate) fn to_markdown_with_tables_and_images(
                     output.push('\n');
                     output.push_str(table_md);
                     output.push('\n');
-                    inserted_tables.insert((current_page, idx));
                 }
             }
         }
@@ -391,7 +397,7 @@ pub(crate) fn to_markdown_with_tables_and_images(
         // Insert images before this line based on Y position
         if let Some(images) = page_images.get(&current_page) {
             for (idx, (image_y, image_md)) in images.iter().enumerate() {
-                if *image_y > line.y && !inserted_images.contains(&(current_page, idx)) {
+                if *image_y > line.y && inserted_images.insert((current_page, idx)) {
                     if in_paragraph {
                         output.push_str("\n\n");
                         in_paragraph = false;
@@ -399,13 +405,12 @@ pub(crate) fn to_markdown_with_tables_and_images(
                     output.push('\n');
                     output.push_str(image_md);
                     output.push('\n');
-                    inserted_images.insert((current_page, idx));
                 }
             }
         }
 
         let y_gap = prev_y - line.y;
-        let line_x = line.items.first().map(|i| i.x).unwrap_or(0.0);
+        let line_x = line.items.first().map_or(0.0, |i| i.x);
         let is_para_break = y_gap.abs() > para_threshold;
         let is_band_switch = band_split_pages.contains(&line.page)
             && y_gap.abs() <= para_threshold
@@ -461,7 +466,7 @@ pub(crate) fn to_markdown_with_tables_and_images(
             && plain_trimmed.len() > 3
             && plain_trimmed.split_whitespace().count() <= 15
         {
-            let line_font_size = line.items.first().map(|i| i.font_size).unwrap_or(base_size);
+            let line_font_size = line.items.first().map_or(base_size, |i| i.font_size);
             detect_header_level(line_font_size, base_size, &heading_tiers).or_else(|| {
                 if line_font_size < base_size * 0.95 {
                     return None;
@@ -475,10 +480,12 @@ pub(crate) fn to_markdown_with_tables_and_images(
                 let standalone = !in_paragraph;
                 let isolated = isolated_lines.contains(&line_idx);
 
-                let score = rarity * 0.5
-                    + if all_bold { 0.3 } else { 0.0 }
-                    + if standalone { 0.2 } else { 0.0 }
-                    + if isolated { 0.3 } else { 0.0 };
+                let score = rarity.mul_add(
+                    0.5,
+                    if all_bold { 0.3 } else { 0.0 }
+                        + if standalone { 0.2 } else { 0.0 }
+                        + if isolated { 0.3 } else { 0.0 },
+                );
 
                 if score >= 0.5 && standalone && word_count >= 2 {
                     Some(bold_heading_level(&heading_tiers))
@@ -495,8 +502,12 @@ pub(crate) fn to_markdown_with_tables_and_images(
                 output.push_str("\n\n");
                 in_paragraph = false;
             }
-            let prefix = "#".repeat(level);
-            output.push_str(&format!("{prefix} {plain_trimmed}\n\n"));
+            for _ in 0..level {
+                output.push('#');
+            }
+            output.push(' ');
+            output.push_str(plain_trimmed);
+            output.push_str("\n\n");
             in_list = false;
             continue;
         }
@@ -511,7 +522,8 @@ pub(crate) fn to_markdown_with_tables_and_images(
                 output.push_str("\n\n");
                 in_paragraph = false;
             }
-            output.push_str(&format!("- {trimmed}"));
+            output.push_str("- ");
+            output.push_str(trimmed);
             output.push('\n');
             in_list = true;
             last_list_x = line.items.first().map(|i| i.x);
@@ -530,7 +542,8 @@ pub(crate) fn to_markdown_with_tables_and_images(
             in_list = true;
             last_list_x = line.items.first().map(|i| i.x);
             continue;
-        } else if in_list {
+        }
+        if in_list {
             let curr_x = line.items.first().map(|i| i.x);
             let is_continuation = if let (Some(list_x), Some(cx)) = (last_list_x, curr_x) {
                 let x_ok = cx >= list_x - 5.0 && cx <= list_x + 50.0;
@@ -548,10 +561,9 @@ pub(crate) fn to_markdown_with_tables_and_images(
                 output.push_str(trimmed);
                 output.push('\n');
                 continue;
-            } else {
-                in_list = false;
-                last_list_x = None;
             }
+            in_list = false;
+            last_list_x = None;
         }
 
         // Block quote
@@ -563,7 +575,9 @@ pub(crate) fn to_markdown_with_tables_and_images(
                 output.push_str("\n\n");
                 in_paragraph = false;
             }
-            output.push_str(&format!("> {trimmed}\n"));
+            output.push_str("> ");
+            output.push_str(trimmed);
+            output.push('\n');
             continue;
         }
 

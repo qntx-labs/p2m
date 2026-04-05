@@ -2,7 +2,8 @@
 
 use super::Table;
 
-pub fn table_to_markdown(table: &Table) -> String {
+#[allow(dead_code)]
+pub(super) fn table_to_markdown(table: &Table) -> String {
     if table.cells.is_empty() || table.cells[0].is_empty() {
         return String::new();
     }
@@ -21,7 +22,7 @@ pub fn table_to_markdown(table: &Table) -> String {
     // efficiency — AI agents are the primary consumer, not human eyes.
     for (row_idx, row) in cleaned_cells.iter().enumerate() {
         output.push('|');
-        for cell in row.iter() {
+        for cell in row {
             output.push_str(cell);
             output.push('|');
         }
@@ -50,6 +51,7 @@ pub fn table_to_markdown(table: &Table) -> String {
 }
 
 /// Clean up table cells: merge continuation rows, extract footnotes, remove empty rows
+#[allow(clippy::cast_precision_loss)]
 fn clean_table_cells(cells: &[Vec<String>]) -> (Vec<Vec<String>>, Vec<String>) {
     let mut cleaned: Vec<Vec<String>> = Vec::new();
     let mut footnotes: Vec<String> = Vec::new();
@@ -61,7 +63,7 @@ fn clean_table_cells(cells: &[Vec<String>]) -> (Vec<Vec<String>>, Vec<String>) {
         }
 
         // Check if this row is a footnote (starts with (1), (2), etc. or just a number reference)
-        let first_cell = row.first().map(|s| s.trim()).unwrap_or("");
+        let first_cell = row.first().map_or("", |s| s.trim());
         if is_footnote_row(first_cell) {
             // Combine all cells into a single footnote line
             let footnote_text: String = row
@@ -121,12 +123,10 @@ fn clean_table_cells(cells: &[Vec<String>]) -> (Vec<Vec<String>>, Vec<String>) {
         let filled_cells = row.iter().filter(|c| !c.trim().is_empty()).count();
         let prev_filled = cleaned
             .last()
-            .map(|r| r.iter().filter(|c| !c.trim().is_empty()).count())
-            .unwrap_or(0);
+            .map_or(0, |r| r.iter().filter(|c| !c.trim().is_empty()).count());
         let header_filled = cleaned
             .first()
-            .map(|r| r.iter().filter(|c| !c.trim().is_empty()).count())
-            .unwrap_or(num_cols);
+            .map_or(num_cols, |r| r.iter().filter(|c| !c.trim().is_empty()).count());
         // Merge when the row has significantly fewer filled cells than header.
         // For wide tables (5+ cols), require ≤50% of header cells.
         // For narrow tables (2-4 cols), require fewer than header cells.
@@ -168,6 +168,7 @@ fn clean_table_cells(cells: &[Vec<String>]) -> (Vec<Vec<String>>, Vec<String>) {
 }
 
 /// Check if a cell value indicates a footnote row
+#[allow(dead_code)]
 fn is_footnote_row(text: &str) -> bool {
     let trimmed = text.trim();
 
@@ -184,12 +185,12 @@ fn is_footnote_row(text: &str) -> bool {
     }
 
     // 1), 2), etc.
-    if trimmed.len() >= 2 {
-        if let Some(paren_idx) = trimmed.find(')') {
-            let num_part = &trimmed[..paren_idx];
-            if !num_part.is_empty() && num_part.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
+    if trimmed.len() >= 2
+        && let Some(paren_idx) = trimmed.find(')')
+    {
+        let num_part = &trimmed[..paren_idx];
+        if !num_part.is_empty() && num_part.chars().all(|c| c.is_ascii_digit()) {
+            return true;
         }
     }
 
@@ -249,7 +250,7 @@ mod tests {
     fn test_clean_table_cells_empty_rows_removed() {
         let cells = vec![
             vec!["A".into(), "B".into()],
-            vec!["".into(), "".into()],
+            vec![String::new(), String::new()],
             vec!["C".into(), "D".into()],
         ];
         let (cleaned, _) = clean_table_cells(&cells);
@@ -277,7 +278,7 @@ mod tests {
         let cells = vec![
             vec!["Header".into(), "Col2".into()],
             vec!["Row1".into(), "Short".into()],
-            vec!["".into(), "continued text here".into()],
+            vec![String::new(), "continued text here".into()],
         ];
         let (cleaned, _) = clean_table_cells(&cells);
         // The continuation row should merge into the previous row
@@ -291,7 +292,7 @@ mod tests {
         let cells = vec![
             vec!["Header".into(), "Col2".into()],
             vec!["Row1".into(), "Data".into()],
-            vec!["".into(), "JAN".into()],
+            vec![String::new(), "JAN".into()],
         ];
         let (cleaned, _) = clean_table_cells(&cells);
         // Short subheader (<=5 chars, single non-empty cell) should not merge
@@ -303,7 +304,7 @@ mod tests {
         let cells = vec![
             vec!["Header".into(), "A".into(), "B".into(), "C".into()],
             vec!["Row1".into(), "10".into(), "20".into(), "30".into()],
-            vec!["".into(), "40".into(), "50".into(), "60".into()],
+            vec![String::new(), "40".into(), "50".into(), "60".into()],
         ];
         let (cleaned, _) = clean_table_cells(&cells);
         // Numeric data row with empty first col should not merge
@@ -315,7 +316,7 @@ mod tests {
         // Continuation requires cleaned.len() > 1 (don't merge into header)
         let cells = vec![
             vec!["Header".into(), "Col2".into()],
-            vec!["".into(), "continuation text goes here".into()],
+            vec![String::new(), "continuation text goes here".into()],
         ];
         let (cleaned, _) = clean_table_cells(&cells);
         // Should not merge into first row (header)
@@ -324,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_clean_table_cells_all_empty() {
-        let cells = vec![vec!["".into(), "".into()], vec!["  ".into(), "".into()]];
+        let cells = vec![vec![String::new(), String::new()], vec!["  ".into(), String::new()]];
         let (cleaned, footnotes) = clean_table_cells(&cells);
         assert!(cleaned.is_empty());
         assert!(footnotes.is_empty());
@@ -335,9 +336,9 @@ mod tests {
         let cells = vec![
             vec!["Name".into(), "Score".into()],
             vec!["Alice".into(), "95".into()],
-            vec!["".into(), "".into()],
+            vec![String::new(), String::new()],
             vec!["Bob".into(), "87".into()],
-            vec!["Note: graded on curve".into(), "".into()],
+            vec!["Note: graded on curve".into(), String::new()],
         ];
         let (cleaned, footnotes) = clean_table_cells(&cells);
         assert_eq!(cleaned.len(), 3); // header + Alice + Bob (empty row removed)

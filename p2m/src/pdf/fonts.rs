@@ -201,7 +201,7 @@ fn parse_simple_font_widths(doc: &Document, font_dict: &Dictionary) -> Option<Fo
         space_width,
         is_cid: false,
         units_scale: 0.001,
-        wmode: 0,
+        _wmode: 0,
     })
 }
 
@@ -249,7 +249,7 @@ fn parse_type0_widths(doc: &Document, font_dict: &Dictionary) -> Option<FontWidt
         space_width,
         is_cid: true,
         units_scale: 0.001,
-        wmode: wmode.min(1) as u8,
+        _wmode: wmode.min(1) as u8,
     })
 }
 
@@ -1114,7 +1114,7 @@ mod tests {
             space_width: 250,
             is_cid: false,
             units_scale: 0.001,
-            wmode: 0,
+            _wmode: 0,
         };
         let w = compute_string_width_ts(b"He", &info, 12.0, 0.0, 0.0);
         // (700 * 0.001 * 12) + (500 * 0.001 * 12) = 8.4 + 6.0 = 14.4

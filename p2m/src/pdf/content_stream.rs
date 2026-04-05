@@ -186,8 +186,8 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── CTM concatenation ──────────────────────────────
-            "cm" => {
-                if op.operands.len() >= 6 {
+            "cm"
+                if op.operands.len() >= 6 => {
                     let new_matrix = [
                         get_number(&op.operands[0]).unwrap_or(1.0),
                         get_number(&op.operands[1]).unwrap_or(0.0),
@@ -198,7 +198,6 @@ pub(crate) fn extract_page_text_items(
                     ];
                     ctm = multiply_matrices(&new_matrix, &ctm);
                 }
-            }
 
             // ── Text block begin / end ─────────────────────────
             "BT" => {
@@ -212,8 +211,8 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── Font selection ─────────────────────────────────
-            "Tf" => {
-                if op.operands.len() >= 2 {
+            "Tf"
+                if op.operands.len() >= 2 => {
                     if let Ok(name) = op.operands[0].as_name() {
                         current_font = String::from_utf8_lossy(name).to_string();
                     }
@@ -226,7 +225,6 @@ pub(crate) fn extract_page_text_items(
                         }
                     }
                 }
-            }
 
             // ── Text leading ───────────────────────────────────
             "TL" => {
@@ -260,8 +258,8 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── Text position offset ───────────────────────────
-            "Td" | "TD" => {
-                if op.operands.len() >= 2 {
+            "Td" | "TD"
+                if op.operands.len() >= 2 => {
                     let tx = get_number(&op.operands[0]).unwrap_or(0.0);
                     let ty = get_number(&op.operands[1]).unwrap_or(0.0);
                     line_matrix[4] += tx * line_matrix[0] + ty * line_matrix[2];
@@ -271,18 +269,16 @@ pub(crate) fn extract_page_text_items(
                         text_leading = -ty;
                     }
                 }
-            }
 
             // ── Set text matrix directly ───────────────────────
-            "Tm" => {
-                if op.operands.len() >= 6 {
+            "Tm"
+                if op.operands.len() >= 6 => {
                     for (i, operand) in op.operands.iter().take(6).enumerate() {
                         text_matrix[i] =
                             get_number(operand).unwrap_or(if i == 0 || i == 3 { 1.0 } else { 0.0 });
                     }
                     line_matrix = text_matrix;
                 }
-            }
 
             // ── Next line ──────────────────────────────────────
             "T*" => {
@@ -297,8 +293,8 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── Show text string ───────────────────────────────
-            "Tj" => {
-                if in_text_block && !op.operands.is_empty() {
+            "Tj"
+                if in_text_block && !op.operands.is_empty() => {
                     handle_tj(
                         &op.operands[0],
                         &mut text_matrix,
@@ -325,11 +321,10 @@ pub(crate) fn extract_page_text_items(
                         &mut items,
                     );
                 }
-            }
 
             // ── Show text array with positioning ───────────────
-            "TJ" => {
-                if in_text_block && !op.operands.is_empty() {
+            "TJ"
+                if in_text_block && !op.operands.is_empty() => {
                     handle_tj_array(
                         &op.operands[0],
                         &mut text_matrix,
@@ -356,7 +351,6 @@ pub(crate) fn extract_page_text_items(
                         &mut items,
                     );
                 }
-            }
 
             // ── Next line + show text ──────────────────────────
             "'" => {
@@ -396,9 +390,9 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── Set spacing + next line + show text ────────────
-            "\"" => {
+            "\""
                 // " aw ac string: set Tw, Tc, then T* Tj
-                if op.operands.len() >= 3 {
+                if op.operands.len() >= 3 => {
                     if let Some(tw) = get_number(&op.operands[0]) {
                         word_spacing = tw;
                     }
@@ -438,11 +432,10 @@ pub(crate) fn extract_page_text_items(
                         );
                     }
                 }
-            }
 
             // ── Rectangle operator ─────────────────────────────
-            "re" => {
-                if op.operands.len() >= 4 {
+            "re"
+                if op.operands.len() >= 4 => {
                     let rx = get_number(&op.operands[0]).unwrap_or(0.0);
                     let ry = get_number(&op.operands[1]).unwrap_or(0.0);
                     let rw = get_number(&op.operands[2]).unwrap_or(0.0);
@@ -459,21 +452,19 @@ pub(crate) fn extract_page_text_items(
                         page: page_num,
                     });
                 }
-            }
 
             // ── Path construction: moveto ──────────────────────
-            "m" => {
-                if op.operands.len() >= 2 {
+            "m"
+                if op.operands.len() >= 2 => {
                     let px = get_number(&op.operands[0]).unwrap_or(0.0);
                     let py = get_number(&op.operands[1]).unwrap_or(0.0);
                     path_subpath_start = Some((px, py));
                     path_current = Some((px, py));
                 }
-            }
 
             // ── Path construction: lineto ──────────────────────
-            "l" => {
-                if op.operands.len() >= 2 {
+            "l"
+                if op.operands.len() >= 2 => {
                     if let Some((cx, cy)) = path_current {
                         let px = get_number(&op.operands[0]).unwrap_or(0.0);
                         let py = get_number(&op.operands[1]).unwrap_or(0.0);
@@ -481,7 +472,6 @@ pub(crate) fn extract_page_text_items(
                         path_current = Some((px, py));
                     }
                 }
-            }
 
             // ── Path construction: closepath ───────────────────
             "h" => {
@@ -559,8 +549,8 @@ pub(crate) fn extract_page_text_items(
             }
 
             // ── XObject invocation ─────────────────────────────
-            "Do" => {
-                if !op.operands.is_empty() {
+            "Do"
+                if !op.operands.is_empty() => {
                     if let Ok(name) = op.operands[0].as_name() {
                         let xobj_name = String::from_utf8_lossy(name).to_string();
                         if let Some(xobj_type) = xobjects.get(&xobj_name) {
@@ -594,7 +584,6 @@ pub(crate) fn extract_page_text_items(
                         }
                     }
                 }
-            }
 
             // ── Marked content: begin (no properties) ──────────
             "BMC" => {
@@ -680,23 +669,21 @@ pub(crate) fn extract_page_text_items(
                     fill_is_white = gray > 0.95;
                 }
             }
-            "rg" => {
-                if op.operands.len() >= 3 {
+            "rg"
+                if op.operands.len() >= 3 => {
                     let r = get_number(&op.operands[0]).unwrap_or(0.0);
                     let g = get_number(&op.operands[1]).unwrap_or(0.0);
                     let b = get_number(&op.operands[2]).unwrap_or(0.0);
                     fill_is_white = r > 0.95 && g > 0.95 && b > 0.95;
                 }
-            }
-            "k" => {
-                if op.operands.len() >= 4 {
+            "k"
+                if op.operands.len() >= 4 => {
                     let c = get_number(&op.operands[0]).unwrap_or(1.0);
                     let m_val = get_number(&op.operands[1]).unwrap_or(1.0);
                     let y_val = get_number(&op.operands[2]).unwrap_or(1.0);
                     let k_val = get_number(&op.operands[3]).unwrap_or(1.0);
                     fill_is_white = c < 0.05 && m_val < 0.05 && y_val < 0.05 && k_val < 0.05;
                 }
-            }
             "sc" | "scn" => {
                 let nums: Vec<f32> = op.operands.iter().filter_map(get_number).collect();
                 match nums.len() {
@@ -1642,8 +1629,8 @@ mod tests {
 
     #[test]
     fn test_get_number_real() {
-        let obj = Object::Real(3.14);
-        assert!((get_number(&obj).unwrap() - 3.14).abs() < 1e-6);
+        let obj = Object::Real(3.15);
+        assert!((get_number(&obj).unwrap() - 3.15).abs() < 1e-6);
     }
 
     #[test]

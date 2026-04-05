@@ -346,7 +346,7 @@ mod tests {
         #[allow(clippy::cast_precision_loss)]
         for (wi, word) in words.iter().enumerate() {
             let char_count = word.chars().filter(|c| !c.is_whitespace()).count();
-            let w = char_count as f32 * char_w + (char_count - 1) as f32 * letter_gap;
+            let w = ((char_count - 1) as f32).mul_add(letter_gap, char_count as f32 * char_w);
             items.push(TextItem {
                 text: (*word).into(),
                 x,
@@ -384,14 +384,15 @@ mod tests {
         let mut items = Vec::new();
         #[allow(clippy::cast_precision_loss)]
         for (i, &ch) in ['H', 'e', 'l', 'l', 'o'].iter().enumerate() {
-            let x = 100.0 + i as f32 * (char_w + intra_gap);
+            let x = (i as f32).mul_add(char_w + intra_gap, 100.0);
             items.push(make_char_item(ch, x, char_w, fs));
         }
+        #[allow(clippy::expect_used)] // items is non-empty after the loop above
         let w_x = items.last().expect("not empty").x + char_w + word_gap;
         items.push(make_char_item('W', w_x, char_w, fs));
         #[allow(clippy::cast_precision_loss)]
         for (i, &ch) in ['o', 'r', 'l', 'd'].iter().enumerate() {
-            let x = w_x + (i + 1) as f32 * (char_w + intra_gap);
+            let x = ((i + 1) as f32).mul_add(char_w + intra_gap, w_x);
             items.push(make_char_item(ch, x, char_w, fs));
         }
 

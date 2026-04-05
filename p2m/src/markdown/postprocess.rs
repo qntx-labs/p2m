@@ -1,5 +1,6 @@
 //! Post-processing: dot leaders, hyphenation, page numbers, URL formatting.
 
+use std::fmt::Write;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -7,7 +8,7 @@ use regex::Regex;
 use crate::options::MarkdownOptions;
 
 /// Clean up markdown output with post-processing.
-pub(crate) fn clean_markdown(mut text: String, options: &MarkdownOptions) -> String {
+pub(super) fn clean_markdown(mut text: String, options: &MarkdownOptions) -> String {
     text = collapse_dot_leaders(&text);
 
     if options.fix_hyphenation {
@@ -61,19 +62,22 @@ fn collapse_consecutive_spaces(text: &mut String) {
 }
 
 /// Collapse dot leaders (runs of 4+ dots) into " ... ".
+#[allow(clippy::expect_used)]
 fn collapse_dot_leaders(text: &str) -> String {
-    static DOT_LEADER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\.{4,}").unwrap());
+    static DOT_LEADER_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\.{4,}").expect("valid regex"));
     DOT_LEADER_RE.replace_all(text, " ... ").to_string()
 }
 
 /// Fix words broken across lines with spaces before the continuation.
+#[allow(clippy::expect_used)]
 fn fix_hyphenation(text: &str) -> String {
     static SPACED_HYPHEN_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"([a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]) - ([a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ])").unwrap()
+        Regex::new(r"([a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]) - ([a-zA-ZáàâãéèêíïóôõöúçñÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ])").expect("valid regex")
     });
 
     SPACED_HYPHEN_RE
-        .replace_all(text, |caps: &regex::Captures| {
+        .replace_all(text, |caps: &regex::Captures<'_>| {
             format!("{}-{}", &caps[1], &caps[2])
         })
         .to_string()
@@ -126,8 +130,8 @@ fn is_page_number_line(trimmed: &str) -> bool {
 
     // Pattern 2: "Page X of Y" or "Page X"
     let lower = trimmed.to_lowercase();
-    if let Some(rest) = lower.strip_prefix("page") {
-        let rest = rest.trim();
+    if let Some(after_page) = lower.strip_prefix("page") {
+        let rest = after_page.trim();
         if rest == "of" || rest.starts_with("of ") {
             return true;
         }
@@ -168,9 +172,10 @@ fn is_page_number_line(trimmed: &str) -> bool {
 }
 
 /// Convert URLs to markdown links.
+#[allow(clippy::expect_used)]
 fn format_urls(text: &str) -> String {
     static URL_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"https?://[^\s<>\)\]]+[^\s<>\)\]\.\,;]").unwrap());
+        LazyLock::new(|| Regex::new(r"https?://[^\s<>\)\]]+[^\s<>\)\]\.\,;]").expect("valid regex"));
 
     let mut result = String::with_capacity(text.len());
     let mut last_end = 0;
@@ -217,7 +222,7 @@ fn format_urls(text: &str) -> String {
             if safe_last_end <= safe_start {
                 result.push_str(&text[safe_last_end..safe_start]);
             }
-            result.push_str(&format!("[{url}]({url})"));
+            let _ = write!(result, "[{url}]({url})");
         }
         last_end = safe_end;
     }
@@ -230,7 +235,7 @@ fn format_urls(text: &str) -> String {
 }
 
 /// Find the nearest valid character boundary at or after `pos`.
-fn safe_char_boundary(text: &str, pos: usize, forward: bool) -> usize {
+const fn safe_char_boundary(text: &str, pos: usize, forward: bool) -> usize {
     if text.is_char_boundary(pos) {
         return pos;
     }

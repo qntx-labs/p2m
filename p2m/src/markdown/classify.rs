@@ -1,7 +1,7 @@
 //! Line classification: header, list, code, caption.
 
 /// Check if text is a figure/table caption or source citation.
-pub(crate) fn is_caption_line(text: &str) -> bool {
+pub(super) fn is_caption_line(text: &str) -> bool {
     let trimmed = text.trim();
 
     let always_prefixes = [
@@ -33,25 +33,23 @@ pub(crate) fn is_caption_line(text: &str) -> bool {
     // "Figure" and "Table" need a digit/reference after them to distinguish
     // captions ("Table 1") from headings ("Table of Contents").
     for prefix in ["Figure ", "Table "] {
-        if let Some(rest) = trimmed.strip_prefix(prefix) {
-            if rest
+        if let Some(rest) = trimmed.strip_prefix(prefix)
+            && rest
                 .trim_start()
                 .starts_with(|c: char| c.is_ascii_digit() || c == '(' || c == '#')
-            {
-                return true;
-            }
+        {
+            return true;
         }
     }
 
     let lower = trimmed.to_lowercase();
     for pfx in ["figure ", "table "] {
-        if let Some(rest) = lower.strip_prefix(pfx) {
-            if rest
+        if let Some(rest) = lower.strip_prefix(pfx)
+            && rest
                 .trim_start()
                 .starts_with(|c: char| c.is_ascii_digit() || c == '(' || c == '#')
-            {
-                return true;
-            }
+        {
+            return true;
         }
     }
     if lower.starts_with("source:") {
@@ -62,7 +60,7 @@ pub(crate) fn is_caption_line(text: &str) -> bool {
 }
 
 /// Check if text looks like a list item.
-pub(crate) fn is_list_item(text: &str) -> bool {
+pub(super) fn is_list_item(text: &str) -> bool {
     let trimmed = text.trim_start();
 
     if trimmed.starts_with("• ")
@@ -77,12 +75,12 @@ pub(crate) fn is_list_item(text: &str) -> bool {
 
     // Numbered list patterns: "1.", "1)", "(1)", "a.", "a)"
     let first_chars: String = trimmed.chars().take(5).collect();
-    if first_chars.contains(|c: char| c.is_ascii_digit()) {
-        if let Some(idx) = first_chars.find(['.', ')']) {
-            let prefix = &first_chars[..idx];
-            if prefix.chars().all(|c| c.is_ascii_digit()) {
-                return true;
-            }
+    if first_chars.contains(|c: char| c.is_ascii_digit())
+        && let Some(idx) = first_chars.find(['.', ')'])
+    {
+        let prefix = &first_chars[..idx];
+        if prefix.chars().all(|c| c.is_ascii_digit()) {
+            return true;
         }
     }
 
@@ -101,7 +99,7 @@ pub(crate) fn is_list_item(text: &str) -> bool {
 }
 
 /// Format list item to markdown.
-pub(crate) fn format_list_item(text: &str) -> String {
+pub(super) fn format_list_item(text: &str) -> String {
     let trimmed = text.trim_start();
 
     for bullet in &['•', '○', '●', '◦'] {
@@ -118,7 +116,7 @@ pub(crate) fn format_list_item(text: &str) -> String {
 }
 
 /// Check if font name indicates monospace.
-pub(crate) fn is_monospace_font(font_name: &str) -> bool {
+pub(super) fn is_monospace_font(font_name: &str) -> bool {
     let lower = font_name.to_lowercase();
     let patterns = [
         "courier",

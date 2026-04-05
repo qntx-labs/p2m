@@ -317,7 +317,7 @@ pub(crate) struct FontWidthInfo {
     /// Scale factor to convert font units to text space units.
     pub(crate) units_scale: f32,
     /// Writing mode: 0 = horizontal (default), 1 = vertical.
-    pub(crate) wmode: u8,
+    pub(crate) _wmode: u8,
 }
 
 /// All font width info for a page, keyed by font resource name.

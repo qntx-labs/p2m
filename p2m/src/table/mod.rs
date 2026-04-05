@@ -10,20 +10,13 @@ mod financial;
 mod format;
 mod grid;
 
-pub use detect_heuristic::detect_tables;
-pub use detect_lines::detect_tables_from_lines;
-pub(crate) use detect_rects::cluster_rects;
-pub use detect_rects::detect_tables_from_rects;
-pub use detect_struct::detect_tables_from_struct_tree;
-pub use format::table_to_markdown;
-
 use crate::types::TextItem;
 
 /// Try to build a table from items + cluster rects (calendar-style layouts).
 ///
 /// Uses rect X positions as column boundaries to directly construct a `Table`,
 /// bypassing heuristic detection. Splits merged multi-number items first.
-pub(crate) fn try_build_rect_guided_table(
+pub fn try_build_rect_guided_table(
     items: &[TextItem],
     cluster_rects: &[(f32, f32, f32, f32)],
 ) -> Option<Table> {
@@ -33,7 +26,7 @@ pub(crate) fn try_build_rect_guided_table(
 
     // 1. Derive column boundaries from rect X positions (snapped to 2pt tolerance)
     let mut x_lefts: Vec<f32> = cluster_rects.iter().map(|&(x, _, _, _)| x).collect();
-    x_lefts.sort_by(|a, b| a.total_cmp(b));
+    x_lefts.sort_by(f32::total_cmp);
     // Snap: deduplicate within 2pt tolerance
     let mut col_boundaries: Vec<f32> = Vec::new();
     for x in &x_lefts {
@@ -54,7 +47,7 @@ pub(crate) fn try_build_rect_guided_table(
     // boundaries so every day gets a column.
     if col_boundaries.len() >= 2 {
         let mut spacings: Vec<f32> = col_boundaries.windows(2).map(|w| w[1] - w[0]).collect();
-        spacings.sort_by(|a, b| a.total_cmp(b));
+        spacings.sort_by(f32::total_cmp);
         let median_spacing = spacings[spacings.len() / 2];
         let threshold = median_spacing * 1.5;
 
@@ -67,7 +60,7 @@ pub(crate) fn try_build_rect_guided_table(
                 if n >= 2 {
                     let step = gap / n as f32;
                     for j in 1..n {
-                        filled.push(col_boundaries[i - 1] + j as f32 * step);
+                        filled.push((j as f32).mul_add(step, col_boundaries[i - 1]));
                     }
                 }
             }
@@ -174,8 +167,8 @@ pub(crate) fn try_build_rect_guided_table(
     })
 }
 
-/// Split a TextItem whose text contains multiple whitespace-separated tokens
-/// (like "10 11 12 ... 31") into individual TextItems, each assigned to the
+/// Split a `TextItem` whose text contains multiple whitespace-separated tokens
+/// (like "10 11 12 ... 31") into individual `TextItems`, each assigned to the
 /// nearest column boundary.
 fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem> {
     let tokens: Vec<&str> = item.text.split_whitespace().collect();
@@ -212,7 +205,7 @@ fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem
             col_boundaries[col_idx]
         } else {
             // Fallback: distribute evenly if we run out of boundaries
-            let raw_x = item.x + i as f32 * token_width + token_width / 2.0;
+            let raw_x = (i as f32).mul_add(token_width, item.x) + token_width / 2.0;
             col_boundaries
                 .iter()
                 .rev()
@@ -240,7 +233,7 @@ fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem
     // Trailing non-numeric tokens become annotation placed at last numeric column
     if leading_numeric < tokens.len() {
         let annotation = tokens[leading_numeric..].join(" ");
-        let last_x = result.last().map(|i| i.x).unwrap_or(item.x);
+        let last_x = result.last().map_or(item.x, |i| i.x);
         result.push(TextItem {
             text: annotation,
             x: last_x,
@@ -261,8 +254,8 @@ fn split_merged_numbers(item: &TextItem, col_boundaries: &[f32]) -> Vec<TextItem
 }
 
 /// Detection mode controls thresholds for table validation.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum TableDetectionMode {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableDetectionMode {
     /// Existing behavior: items with font size smaller than body text
     SmallFont,
     /// New: body-font items with stricter structural criteria
@@ -277,7 +270,7 @@ pub(crate) enum TableDetectionMode {
 /// purely by text alignment — common in exam/reference tables.
 ///
 /// Requires ≥3 columns, ≥3 rows, and ≥40% cell fill rate.
-pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Option<Table> {
+pub fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Option<Table> {
     use crate::extract::layout::{
         detect_columns, group_into_lines_with_thresholds, is_newspaper_layout, ColumnRegion,
     };
@@ -318,7 +311,7 @@ pub(crate) fn try_build_table_from_columns(items: &[TextItem], page: u32) -> Opt
             if col_items.len() >= 2 {
                 // Sort by X and find the split point
                 let mut sorted: Vec<f32> = col_items.iter().map(|i| i.x).collect();
-                sorted.sort_by(|a, b| a.total_cmp(b));
+                sorted.sort_by(f32::total_cmp);
                 // Split at the midpoint between the two items
                 let split_x = (sorted[0]
                     + col_items.iter().find(|i| i.x == sorted[0]).unwrap().width
@@ -566,6 +559,8 @@ pub struct Table {
 mod tests {
     use super::*;
     use crate::types::{ItemKind, TextItem};
+    use super::detect_heuristic::detect_tables;
+    use super::format::table_to_markdown;
 
     fn make_item(text: &str, x: f32, y: f32, font_size: f32) -> TextItem {
         TextItem {
@@ -813,22 +808,22 @@ mod tests {
 
         // 49 data rows
         for i in 1..50 {
-            let y = 800.0 - (i as f32 * 12.0);
+            let y = (i as f32).mul_add(-12.0, 800.0);
             items.push(make_item(&format!("{}", -40 + i * 2), 100.0, y, 8.0));
             items.push(make_item(
-                &format!("{:.1}", 100.0 + i as f32 * 5.0),
+                &format!("{:.1}", (i as f32).mul_add(5.0, 100.0)),
                 200.0,
                 y,
                 8.0,
             ));
             items.push(make_item(
-                &format!("{:.3}", 0.05 + i as f32 * 0.01),
+                &format!("{:.3}", (i as f32).mul_add(0.01, 0.05)),
                 300.0,
                 y,
                 8.0,
             ));
             items.push(make_item(
-                &format!("{:.1}", 150.0 + i as f32 * 2.5),
+                &format!("{:.1}", (i as f32).mul_add(2.5, 150.0)),
                 400.0,
                 y,
                 8.0,
@@ -865,7 +860,7 @@ mod tests {
 
         // 7 data rows, each 10pt apart (exactly the old threshold)
         for (i, company) in companies.iter().enumerate() {
-            let y = 790.0 - (i as f32 * 10.0);
+            let y = (i as f32).mul_add(-10.0, 790.0);
             items.push(make_item(&format!("{}", i + 1), 50.0, y, 8.0));
             items.push(make_item(company, 120.0, y, 8.0));
             items.push(make_item(&format!("${},000", 100 + i * 10), 350.0, y, 8.0));
@@ -933,7 +928,7 @@ mod tests {
         for (i, c) in "Col1".chars().enumerate() {
             items.push(make_char(
                 &c.to_string(),
-                300.0 + i as f32 * 5.0,
+                (i as f32).mul_add(5.0, 300.0),
                 540.0,
                 13.0,
                 5.0,
@@ -942,7 +937,7 @@ mod tests {
         for (i, c) in "Col2".chars().enumerate() {
             items.push(make_char(
                 &c.to_string(),
-                400.0 + i as f32 * 5.0,
+                (i as f32).mul_add(5.0, 400.0),
                 540.0,
                 13.0,
                 5.0,
@@ -951,7 +946,7 @@ mod tests {
         for (i, c) in "Col3".chars().enumerate() {
             items.push(make_char(
                 &c.to_string(),
-                500.0 + i as f32 * 5.0,
+                (i as f32).mul_add(5.0, 500.0),
                 540.0,
                 13.0,
                 5.0,
@@ -992,12 +987,12 @@ mod tests {
                 // Header row
                 vec!["No.".into(), "Date".into(), "Title".into(), "Amount".into()],
                 // Sub-header: month name in 1 column, rest empty
-                vec!["".into(), "JAN".into(), "".into(), "".into()],
+                vec![String::new(), "JAN".into(), String::new(), String::new()],
                 // Data row
                 vec!["1".into(), "8/1".into(), "Item A".into(), "100".into()],
                 vec!["2".into(), "15/1".into(), "Item B".into(), "200".into()],
                 // Another sub-header
-                vec!["".into(), "FEB".into(), "".into(), "".into()],
+                vec![String::new(), "FEB".into(), String::new(), String::new()],
                 // Data row
                 vec!["3".into(), "5/2".into(), "Item C".into(), "300".into()],
             ],
@@ -1008,24 +1003,20 @@ mod tests {
         // JAN and FEB should be on their own rows, not merged into adjacent rows
         assert!(
             md.contains("|JAN|"),
-            "JAN should be on its own row, got:\n{}",
-            md
+            "JAN should be on its own row, got:\n{md}"
         );
         assert!(
             md.contains("|FEB|"),
-            "FEB should be on its own row, got:\n{}",
-            md
+            "FEB should be on its own row, got:\n{md}"
         );
         // Verify they're NOT merged into data rows
         assert!(
             !md.contains("15/1 FEB"),
-            "FEB should not be merged into data row, got:\n{}",
-            md
+            "FEB should not be merged into data row, got:\n{md}"
         );
         assert!(
             !md.contains("8/1 JAN"),
-            "JAN should not be merged into data row, got:\n{}",
-            md
+            "JAN should not be merged into data row, got:\n{md}"
         );
     }
 
@@ -1034,7 +1025,7 @@ mod tests {
     #[test]
     fn rect_guided_basic() {
         // 7 column boundaries (like days of week), items "1"-"7" at matching X
-        let col_xs: Vec<f32> = (0..7).map(|i| 50.0 + i as f32 * 30.0).collect();
+        let col_xs: Vec<f32> = (0..7).map(|i| (i as f32).mul_add(30.0, 50.0)).collect();
         let cluster_rects: Vec<(f32, f32, f32, f32)> =
             col_xs.iter().map(|&x| (x, 100.0, 28.0, 15.0)).collect();
         let items: Vec<TextItem> = (1..=7)
@@ -1054,7 +1045,7 @@ mod tests {
     #[test]
     fn rect_guided_split_merged() {
         // One merged item "10 11 12" spanning 3 column boundaries
-        let col_xs: Vec<f32> = (0..7).map(|i| 50.0 + i as f32 * 30.0).collect();
+        let col_xs: Vec<f32> = (0..7).map(|i| (i as f32).mul_add(30.0, 50.0)).collect();
         let cluster_rects: Vec<(f32, f32, f32, f32)> =
             col_xs.iter().map(|&x| (x, 100.0, 28.0, 15.0)).collect();
         // Single items for cols 0-3, merged "4 5 6" spanning cols 4-6
@@ -1075,25 +1066,22 @@ mod tests {
         let row = &table.cells[0];
         assert!(
             row.contains(&"4".to_string()),
-            "Should have '4' in a cell: {:?}",
-            row
+            "Should have '4' in a cell: {row:?}"
         );
         assert!(
             row.contains(&"5".to_string()),
-            "Should have '5' in a cell: {:?}",
-            row
+            "Should have '5' in a cell: {row:?}"
         );
         assert!(
             row.contains(&"6".to_string()),
-            "Should have '6' in a cell: {:?}",
-            row
+            "Should have '6' in a cell: {row:?}"
         );
     }
 
     #[test]
     fn rect_guided_with_annotations() {
         // Day numbers on one row, annotations on a second row
-        let col_xs: Vec<f32> = (0..7).map(|i| 50.0 + i as f32 * 30.0).collect();
+        let col_xs: Vec<f32> = (0..7).map(|i| (i as f32).mul_add(30.0, 50.0)).collect();
         let cluster_rects: Vec<(f32, f32, f32, f32)> =
             col_xs.iter().map(|&x| (x, 100.0, 28.0, 15.0)).collect();
         let mut items: Vec<TextItem> = (1..=7)
@@ -1155,7 +1143,7 @@ mod tests {
     #[test]
     fn split_multiple_leading_numbers_with_annotation() {
         // "24 25 Memorial Day" → "24", "25" split, "Memorial Day" trails
-        let col_xs: Vec<f32> = (0..7).map(|i| 50.0 + i as f32 * 30.0).collect();
+        let col_xs: Vec<f32> = (0..7).map(|i| (i as f32).mul_add(30.0, 50.0)).collect();
         let mut item = make_item("24 25 Memorial Day", col_xs[3], 110.0, 7.0);
         item.width = 4.0 * 30.0; // spans 4 tokens
         let result = split_merged_numbers(&item, &col_xs);
@@ -1178,7 +1166,7 @@ mod tests {
     #[test]
     fn rect_guided_tilde_cleanup() {
         // Items with tilde noise should have it stripped
-        let col_xs: Vec<f32> = (0..7).map(|i| 50.0 + i as f32 * 30.0).collect();
+        let col_xs: Vec<f32> = (0..7).map(|i| (i as f32).mul_add(30.0, 50.0)).collect();
         let cluster_rects: Vec<(f32, f32, f32, f32)> =
             col_xs.iter().map(|&x| (x, 100.0, 28.0, 15.0)).collect();
         let mut items: Vec<TextItem> = (1..=7)

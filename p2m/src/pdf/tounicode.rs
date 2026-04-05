@@ -2397,7 +2397,7 @@ mod tests {
 
     #[test]
     fn test_parse_bfchar_2byte() {
-        let cmap_content = r#"
+        let cmap_content = r"
 /CIDInit /ProcSet findresource begin
 12 dict begin
 begincmap
@@ -2410,7 +2410,7 @@ endcodespacerange
 <0025> <0042>
 endbfchar
 endcmap
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         assert_eq!(cmap.code_byte_length, 2);
@@ -2423,7 +2423,7 @@ endcmap
     fn test_parse_bfchar_1byte() {
         // This is the pattern that caused the CJK bug: codespace is <0000><FFFF>
         // but all source codes are 1-byte hex (e.g., <20>, <41>)
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
@@ -2432,7 +2432,7 @@ endcodespacerange
 <41> <0041>
 <42> <0042>
 endbfchar
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         // Should detect as 1-byte because all source codes are 1-byte hex
@@ -2443,7 +2443,7 @@ endbfchar
 
     #[test]
     fn test_decode_cids_2byte() {
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000><FFFF>
 endcodespacerange
@@ -2452,7 +2452,7 @@ endcodespacerange
 <0024> <0041>
 <0025> <0042>
 endbfchar
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         // "AB " in 2-byte CID encoding
@@ -2463,7 +2463,7 @@ endbfchar
     #[test]
     fn test_decode_cids_1byte_no_cjk_garbage() {
         // Simulates the bug: CMap with 1-byte source codes
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
@@ -2474,7 +2474,7 @@ endcodespacerange
 <50> <0050>
 <52> <0052>
 endbfchar
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
         assert_eq!(cmap.code_byte_length, 1);
 
@@ -2491,14 +2491,14 @@ endbfchar
 
     #[test]
     fn test_bfrange_array_format() {
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000> <FFFF>
 endcodespacerange
 1 beginbfrange
 <0003> <0005> [<0041> <0042> <0043>]
 endbfrange
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         assert_eq!(cmap.lookup(0x0003), Some("A".to_string()));
@@ -2511,7 +2511,7 @@ endbfrange
         // Simulate a broken CMap where GIDs are from pre-subsetting:
         // Old GID 3 → space, old GID 36 → 'A', old GID 37 → 'B'
         // The subset font has sequential GIDs: 1=space, 2='A', 3='B'
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000><FFFF>
 endcodespacerange
@@ -2520,7 +2520,7 @@ endcodespacerange
 <0024> <0041>
 <0025> <0042>
 endbfchar
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         // Original CMap: CID 3 → space, CID 36 → 'A', CID 37 → 'B'
@@ -2543,7 +2543,7 @@ endbfchar
     fn test_remap_to_sequential_with_ranges() {
         // CMap with a bfrange: old GIDs 100-102 → 'X', 'Y', 'Z'
         // Plus a bfchar: old GID 50 → space
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000><FFFF>
 endcodespacerange
@@ -2553,7 +2553,7 @@ endbfchar
 1 beginbfrange
 <0064> <0066> <0058>
 endbfrange
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
 
         assert_eq!(cmap.lookup(0x0032), Some(" ".to_string())); // CID 50
@@ -2573,7 +2573,7 @@ endbfrange
 
     #[test]
     fn test_min_source_cid() {
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000><FFFF>
 endcodespacerange
@@ -2584,21 +2584,21 @@ endbfchar
 1 beginbfrange
 <0030> <0032> <0058>
 endbfrange
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
         assert_eq!(cmap.min_source_cid(), Some(3));
     }
 
     #[test]
     fn test_unmapped_2byte_cids_skipped() {
-        let cmap_content = r#"
+        let cmap_content = r"
 1 begincodespacerange
 <0000><FFFF>
 endcodespacerange
 1 beginbfchar
 <0041> <0041>
 endbfchar
-"#;
+";
         let cmap = ToUnicodeCMap::parse(cmap_content.as_bytes()).unwrap();
         assert_eq!(cmap.code_byte_length, 2);
 

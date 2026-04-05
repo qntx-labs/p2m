@@ -12,7 +12,7 @@
 //!
 //! // With custom options:
 //! let opts = p2m::Options::new().pages([1, 3, 5]);
-//! let doc = p2m::convert_with("document.pdf", opts).unwrap();
+//! let doc = p2m::convert_with("document.pdf", &opts).unwrap();
 //!
 //! // From bytes:
 //! let pdf_bytes = std::fs::read("document.pdf").unwrap();

@@ -14,11 +14,11 @@ use super::{Table, TableDetectionMode};
 /// PDF text is often emitted as one item per glyph. That produces
 /// hundreds of single-char items that confuse column detection. This function
 /// merges adjacent items within the same line (similar Y, close X, similar font
-/// size) into multi-character items, similar to PyMuPDF's `merge_chars()`.
+/// size) into multi-character items, similar to `PyMuPDF`'s `merge_chars()`.
 ///
 /// Returns `(merged_items, index_map)` where `index_map[merged_idx]` contains
 /// the original item indices that were merged into that item.
-pub(crate) fn merge_adjacent_items(items: &[TextItem]) -> (Vec<TextItem>, Vec<Vec<usize>>) {
+pub fn merge_adjacent_items(items: &[TextItem]) -> (Vec<TextItem>, Vec<Vec<usize>>) {
     if items.is_empty() {
         return (vec![], vec![]);
     }
@@ -167,7 +167,7 @@ pub fn detect_tables(items: &[TextItem], base_font_size: f32, skip_body_font: bo
             let region_items: Vec<(usize, &TextItem)> = table_candidates
                 .iter()
                 .filter(|(_, item)| item.y >= y_min && item.y <= y_max)
-                .cloned()
+                .copied()
                 .collect();
 
             if region_items.len() < 6 {
@@ -230,7 +230,7 @@ pub fn detect_tables(items: &[TextItem], base_font_size: f32, skip_body_font: bo
                 let region_items: Vec<(usize, &TextItem)> = body_candidates
                     .iter()
                     .filter(|(_, item)| item.y >= *y_min && item.y <= *y_max)
-                    .cloned()
+                    .copied()
                     .collect();
 
                 log::debug!(
@@ -284,7 +284,7 @@ fn find_table_regions(items: &[(usize, &TextItem)]) -> Vec<(f32, f32)> {
     }
 
     let mut y_positions: Vec<f32> = items.iter().map(|(_, i)| i.y).collect();
-    y_positions.sort_by(|a, b| a.total_cmp(b));
+    y_positions.sort_by(f32::total_cmp);
 
     // Find clusters of Y positions (table regions)
     let mut regions = Vec::new();
@@ -330,7 +330,7 @@ fn find_table_regions_strict(items: &[(usize, &TextItem)]) -> Vec<(f32, f32, f32
     let mut row_groups: Vec<(f32, Vec<f32>)> = Vec::new();
     for (_, item) in items {
         let mut found = false;
-        for (center, x_positions) in row_groups.iter_mut() {
+        for (center, x_positions) in &mut row_groups {
             if (item.y - *center).abs() < 8.0 {
                 x_positions.push(item.x);
                 found = true;
@@ -347,7 +347,7 @@ fn find_table_regions_strict(items: &[(usize, &TextItem)]) -> Vec<(f32, f32, f32
     let mut qualifying_rows: Vec<(f32, Vec<f32>)> = Vec::new(); // (y, cluster_starts)
     for (y, x_positions) in &row_groups {
         let mut sorted_xs = x_positions.clone();
-        sorted_xs.sort_by(|a, b| a.total_cmp(b));
+        sorted_xs.sort_by(f32::total_cmp);
 
         if sorted_xs.is_empty() {
             continue;
@@ -386,7 +386,7 @@ fn find_table_regions_strict(items: &[(usize, &TextItem)]) -> Vec<(f32, f32, f32
             .windows(2)
             .map(|w| (w[1].0 - w[0].0).abs())
             .collect();
-        gaps.sort_by(|a, b| a.total_cmp(b));
+        gaps.sort_by(f32::total_cmp);
         let median_gap = gaps[gaps.len() / 2];
         (median_gap * 3.0).max(25.0)
     } else {
@@ -449,9 +449,7 @@ fn find_table_regions_strict(items: &[(usize, &TextItem)]) -> Vec<(f32, f32, f32
             0.0
         };
         log::debug!(
-            "  candidate region: {} rows, avg alignment score={:.2}",
-            num_rows,
-            avg_score
+            "  candidate region: {num_rows} rows, avg alignment score={avg_score:.2}"
         );
         if avg_score >= 0.5 {
             let y_min = region_rows.first().unwrap().0;
@@ -460,12 +458,12 @@ fn find_table_regions_strict(items: &[(usize, &TextItem)]) -> Vec<(f32, f32, f32
             let x_min = region_rows
                 .iter()
                 .flat_map(|(_, clusters)| clusters.iter())
-                .cloned()
+                .copied()
                 .fold(f32::INFINITY, f32::min);
             let x_max = region_rows
                 .iter()
                 .flat_map(|(_, clusters)| clusters.iter())
-                .cloned()
+                .copied()
                 .fold(f32::NEG_INFINITY, f32::max);
             regions.push((y_min - 5.0, y_max + 5.0, x_min - 15.0, x_max + 50.0));
         }
@@ -628,9 +626,7 @@ fn detect_table_in_region(items: &[(usize, &TextItem)], mode: TableDetectionMode
     let min_avg_cells = 1.5;
     if avg_cells_per_row < min_avg_cells {
         log::debug!(
-            "  validation 4 fail: avg_cells={:.1} < {:.1}",
-            avg_cells_per_row,
-            min_avg_cells
+            "  validation 4 fail: avg_cells={avg_cells_per_row:.1} < {min_avg_cells:.1}"
         );
         return None;
     }
@@ -700,7 +696,7 @@ fn is_key_value_layout(cells: &[Vec<String>]) -> bool {
         }
 
         // Check if first column looks like a label (ends with : or is all caps)
-        let first = row.first().map(|s| s.trim()).unwrap_or("");
+        let first = row.first().map_or("", |s| s.trim());
         if first.ends_with(':')
             || (first.len() > 3
                 && first
@@ -746,8 +742,7 @@ fn has_consistent_columns(cells: &[Vec<String>]) -> bool {
         .max_by(|(count_a, freq_a), (count_b, freq_b)| {
             freq_a.cmp(freq_b).then_with(|| count_a.cmp(count_b))
         })
-        .map(|(count, _)| *count)
-        .unwrap_or(0);
+        .map_or(0, |(count, _)| *count);
 
     // At least 40% of rows should have the most common column count (or close to it).
     // Very wide tables (e.g. 24-column train schedules) have inherently variable fill,
@@ -791,7 +786,7 @@ fn has_table_like_content(cells: &[Vec<String>], mode: TableDetectionMode) -> bo
 
     // Data-like content threshold depends on detection mode
     let pct_data = data_like_cells as f32 / total_cells as f32;
-    let num_cols = cells.first().map(|r| r.len()).unwrap_or(0);
+    let num_cols = cells.first().map_or(0, Vec::len);
 
     let min_pct = match mode {
         TableDetectionMode::SmallFont => 0.2,
@@ -837,7 +832,7 @@ fn looks_like_table_data(s: &str) -> bool {
 
     // Dates: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, etc.
     if s.len() <= 10
-        && s.chars().filter(|c| c.is_ascii_digit()).count() >= 4
+        && s.chars().filter(char::is_ascii_digit).count() >= 4
         && (s.contains('/') || s.contains('-'))
         && s.chars()
             .all(|c| c.is_ascii_digit() || c == '/' || c == '-')
@@ -848,7 +843,7 @@ fn looks_like_table_data(s: &str) -> bool {
     // Part numbers / model codes (alphanumeric, typically short)
     // e.g., "NA555", "NE555", "LM358"
     if s.len() <= 10
-        && s.chars().all(|c| c.is_alphanumeric())
+        && s.chars().all(char::is_alphanumeric)
         && s.chars().any(|c| c.is_ascii_digit())
     {
         return true;
@@ -1010,7 +1005,7 @@ fn is_paragraph_content(cells: &[Vec<String>]) -> bool {
             c.ends_with('-') && c.len() > 1 && {
                 let mut chars = c.chars().rev();
                 chars.next(); // skip the '-'
-                chars.next().is_some_and(|ch| ch.is_alphabetic())
+                chars.next().is_some_and(char::is_alphabetic)
             }
         })
         .count();
@@ -1081,8 +1076,8 @@ fn check_column_alignment(
 }
 
 /// Find the first row that looks like actual table data (not form header).
-/// Returns (first_table_row_index, set of item indices to exclude).
-pub(crate) fn find_first_table_row(
+/// Returns (`first_table_row_index`, set of item indices to exclude).
+pub fn find_first_table_row(
     cell_items: &[Vec<Vec<&TextItem>>],
     rows: &[f32],
     original_items: &[(usize, &TextItem)],
