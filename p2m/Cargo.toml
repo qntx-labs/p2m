@@ -10,7 +10,7 @@ categories.workspace = true
 readme.workspace = true
 
 [dependencies]
-lopdf = "0.34"
+lopdf = "0.40"
 log = "0.4"
 rayon = "1"
 regex = "1"
