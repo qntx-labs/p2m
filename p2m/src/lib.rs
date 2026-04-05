@@ -25,48 +25,6 @@
 //! }
 //! ```
 
-#![doc = include_str!("../../README.md")]
-// TODO: remove lint suppression once ported modules are cleaned up.
-#![allow(
-    dead_code,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::style,
-    clippy::complexity,
-    clippy::perf,
-    clippy::cargo,
-    missing_docs,
-    unused_qualifications,
-    elided_lifetimes_in_paths,
-    trivial_casts,
-    trivial_numeric_casts,
-    missing_copy_implementations,
-    missing_debug_implementations,
-    single_use_lifetimes,
-    unused_lifetimes,
-    variant_size_differences,
-    clippy::missing_docs_in_private_items,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate,
-    clippy::module_name_repetitions,
-    clippy::similar_names,
-    clippy::shadow_reuse,
-    clippy::shadow_same,
-    clippy::shadow_unrelated,
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    clippy::unwrap_used,
-    clippy::unwrap_in_result,
-    clippy::expect_used,
-    clippy::print_stdout,
-    clippy::print_stderr,
-    clippy::doc_markdown,
-    clippy::exhaustive_enums,
-    clippy::exhaustive_structs,
-    clippy::struct_excessive_bools
-)]
-
 pub mod error;
 pub mod options;
 pub mod types;
@@ -97,7 +55,7 @@ pub use types::{Document, Extraction, ItemKind, Line, PageNum, Rect, TextItem, T
 /// Returns [`Error`] if the file cannot be read, is not a valid PDF, or
 /// extraction fails.
 pub fn convert(path: impl AsRef<Path>) -> Result<Document> {
-    convert_with(path, Options::default())
+    convert_with(path, &Options::default())
 }
 
 /// Convert a PDF file to Markdown with custom options.
@@ -106,7 +64,7 @@ pub fn convert(path: impl AsRef<Path>) -> Result<Document> {
 ///
 /// Returns [`Error`] if the file cannot be read, is not a valid PDF, or
 /// extraction fails.
-pub fn convert_with(path: impl AsRef<Path>, options: Options) -> Result<Document> {
+pub fn convert_with(path: impl AsRef<Path>, options: &Options) -> Result<Document> {
     let buffer = std::fs::read(path)?;
     convert_bytes_with(&buffer, options)
 }
@@ -117,7 +75,7 @@ pub fn convert_with(path: impl AsRef<Path>, options: Options) -> Result<Document
 ///
 /// Returns [`Error`] if the buffer is not a valid PDF or extraction fails.
 pub fn convert_bytes(buffer: &[u8]) -> Result<Document> {
-    convert_bytes_with(buffer, Options::default())
+    convert_bytes_with(buffer, &Options::default())
 }
 
 /// Convert a PDF from a byte buffer to Markdown with custom options.
@@ -125,17 +83,17 @@ pub fn convert_bytes(buffer: &[u8]) -> Result<Document> {
 /// # Errors
 ///
 /// Returns [`Error`] if the buffer is not a valid PDF or extraction fails.
-pub fn convert_bytes_with(buffer: &[u8], options: Options) -> Result<Document> {
+pub fn convert_bytes_with(buffer: &[u8], options: &Options) -> Result<Document> {
     let (doc, page_count) = pdf::load_from_bytes(buffer)?;
 
     let page_filter: Option<HashSet<u32>> = options.page_filter.clone();
     let font_cmaps = FontCMaps::from_doc_pages(&doc, page_filter.as_ref());
 
-    let ((items, _rects, _lines), _page_thresholds) =
+    let ((raw_items, _rects, _lines), _page_thresholds) =
         extract::extract_positioned_text(&doc, &font_cmaps, page_filter.as_ref())?;
 
-    let items = merge_text_items(items);
-    let items = merge_subscript_items(items);
+    let merged = merge_text_items(raw_items);
+    let items = merge_subscript_items(merged);
 
     let text_lines = group_into_lines(items);
 
@@ -187,11 +145,11 @@ pub fn extract_bytes(buffer: &[u8]) -> Result<Extraction> {
 
     let font_cmaps = FontCMaps::from_doc(&doc);
 
-    let ((items, rects, lines), _page_thresholds) =
+    let ((raw_items, rects, lines), _page_thresholds) =
         extract::extract_positioned_text(&doc, &font_cmaps, None)?;
 
-    let items = merge_text_items(items);
-    let items = merge_subscript_items(items);
+    let merged = merge_text_items(raw_items);
+    let items = merge_subscript_items(merged);
 
     Ok(Extraction {
         items,

@@ -62,7 +62,7 @@ fn main() -> ExitCode {
         opts = opts.pages(pages);
     }
 
-    match p2m::convert_with(pdf_path, opts) {
+    match p2m::convert_with(pdf_path, &opts) {
         Ok(doc) => {
             if !raw {
                 if let Some(title) = &doc.title {
