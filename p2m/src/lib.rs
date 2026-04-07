@@ -32,10 +32,10 @@ pub mod types;
 mod extract;
 mod markdown;
 mod pdf;
-mod table;
+mod tables;
 pub(crate) mod text;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub use error::{Error, Result};
@@ -43,6 +43,7 @@ use extract::layout::group_into_lines;
 use extract::text::{merge_subscript_items, merge_text_items};
 use markdown::to_markdown_from_lines;
 pub use options::{MarkdownOptions, Options};
+use pdf::structure_tree::StructTree;
 use pdf::tounicode::FontCMaps;
 pub use types::{Document, Extraction, ItemKind, Line, PageNum, Rect, TextItem, TextLine};
 
@@ -89,15 +90,35 @@ pub fn convert_bytes_with(buffer: &[u8], options: &Options) -> Result<Document> 
     let page_filter: Option<HashSet<u32>> = options.page_filter.clone();
     let font_cmaps = FontCMaps::from_doc_pages(&doc, page_filter.as_ref());
 
-    let ((raw_items, _rects, _lines), _page_thresholds) =
+    let ((raw_items, rects, lines), _page_thresholds) =
         extract::extract_positioned_text(&doc, &font_cmaps, page_filter.as_ref())?;
 
     let merged = merge_text_items(raw_items);
     let items = merge_subscript_items(merged);
 
+    let struct_tree = StructTree::from_doc(&doc);
+    let page_ids = doc.get_pages();
+    let struct_roles = struct_tree.as_ref().map(|tree| {
+        let raw = tree.mcid_to_roles(&page_ids);
+        raw.into_iter()
+            .map(|(page_num, roles)| (PageNum::new(page_num), roles))
+            .collect::<HashMap<_, _>>()
+    });
+    let struct_tables = struct_tree
+        .as_ref()
+        .map(|tree| tree.extract_tables(&page_ids))
+        .unwrap_or_default();
+
+    let page_tables = tables::detect_tables(&items, &rects, &lines, &struct_tables);
+
     let text_lines = group_into_lines(items);
 
-    let markdown = to_markdown_from_lines(text_lines, &options.markdown);
+    let markdown = to_markdown_from_lines(
+        text_lines,
+        &options.markdown,
+        page_tables,
+        struct_roles.as_ref(),
+    );
 
     let title = doc
         .trailer

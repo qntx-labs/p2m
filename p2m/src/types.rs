@@ -3,8 +3,6 @@
 use std::collections::HashMap;
 use std::fmt;
 
-// ── Page number ─────────────────────────────────────────────────────
-
 /// A 1-indexed page number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PageNum(u32);
@@ -34,8 +32,6 @@ impl fmt::Display for PageNum {
     }
 }
 
-// ── Item kind ───────────────────────────────────────────────────────
-
 /// The kind of a content item extracted from a PDF.
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
@@ -50,8 +46,6 @@ pub enum ItemKind {
     /// A form field.
     FormField,
 }
-
-// ── Text item ───────────────────────────────────────────────────────
 
 /// A text fragment with position and font metadata.
 ///
@@ -87,8 +81,6 @@ pub struct TextItem {
     /// Used to link this item to the PDF structure tree for tagged PDFs.
     pub mcid: Option<i64>,
 }
-
-// ── Text line ───────────────────────────────────────────────────────
 
 /// A line of text: grouped [`TextItem`]s that share approximately the same
 /// baseline.
@@ -189,9 +181,7 @@ impl TextLine {
         let threshold = self.adaptive_threshold;
         let mut result = String::new();
         for (i, item) in self.items.iter().enumerate() {
-            if i > 0
-                && Self::needs_space_between(&self.items[i - 1], item, &result, threshold)
-            {
+            if i > 0 && Self::needs_space_between(&self.items[i - 1], item, &result, threshold) {
                 result.push(' ');
             }
             result.push_str(&item.text);
@@ -200,12 +190,7 @@ impl TextLine {
     }
 
     /// Determine if a space is needed between two adjacent items.
-    fn needs_space_between(
-        prev: &TextItem,
-        curr: &TextItem,
-        result: &str,
-        threshold: f32,
-    ) -> bool {
+    fn needs_space_between(prev: &TextItem, curr: &TextItem, result: &str, threshold: f32) -> bool {
         let text = curr.text.as_str();
 
         let prev_ends_with_hyphen = result.ends_with('-');
@@ -234,8 +219,6 @@ impl TextLine {
             || space_exists)
     }
 }
-
-// ── Geometric primitives ────────────────────────────────────────────
 
 /// A rectangle from a PDF `re` operator (cell boundary, border, etc.).
 #[derive(Debug, Clone, Copy)]
@@ -269,8 +252,6 @@ pub struct Line {
     pub page: PageNum,
 }
 
-// ── Extraction result ───────────────────────────────────────────────
-
 /// Raw extraction result from a PDF document (before markdown conversion).
 #[derive(Debug)]
 #[non_exhaustive]
@@ -294,8 +275,6 @@ pub struct Document {
     /// Title from PDF metadata, if available.
     pub title: Option<String>,
 }
-
-// ── Internal types ──────────────────────────────────────────────────
 
 /// Font encoding map: byte codes to Unicode characters.
 pub(crate) type FontEncodingMap = HashMap<u8, char>;

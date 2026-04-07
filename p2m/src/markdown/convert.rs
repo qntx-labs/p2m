@@ -107,7 +107,7 @@ fn resolve_line_struct_role(
                 | StructRole::Div
                 | StructRole::NonStruct
                 | StructRole::Span
-                | StructRole::Private => {},
+                | StructRole::Private => {}
                 _ => return Some(role.clone()),
             }
         }
@@ -167,10 +167,7 @@ pub(super) fn merge_continuation_tables(
         let mut j = i + 1;
         while j < sorted_pages.len() {
             let next_page = sorted_pages[j];
-            let prev_page = continuation_pages
-                .last()
-                .copied()
-                .unwrap_or(first_page);
+            let prev_page = continuation_pages.last().copied().unwrap_or(first_page);
             if next_page.get() != prev_page.get() + 1 {
                 break;
             }
@@ -276,7 +273,7 @@ fn flush_page_tables_and_images(
     clippy::cast_precision_loss,
     clippy::needless_pass_by_value,
     clippy::shadow_unrelated,
-    clippy::too_many_lines,
+    clippy::too_many_lines
 )]
 pub(super) fn to_markdown_with_tables_and_images(
     lines: Vec<TextLine>,
@@ -645,15 +642,20 @@ pub(super) fn to_markdown_with_tables_and_images(
     clean_markdown(output, options)
 }
 
-/// Convert text lines to markdown (simple version without table/image
-/// interleaving).
-pub fn to_markdown_from_lines(lines: Vec<TextLine>, options: &MarkdownOptions) -> String {
+/// Convert text lines to markdown, interleaving detected tables at their
+/// original Y positions.
+pub fn to_markdown_from_lines(
+    lines: Vec<TextLine>,
+    options: &MarkdownOptions,
+    page_tables: HashMap<PageNum, Vec<(f32, String)>>,
+    struct_roles: Option<&HashMap<PageNum, HashMap<i64, StructRole>>>,
+) -> String {
     to_markdown_with_tables_and_images(
         lines,
         options,
-        HashMap::new(),
+        page_tables,
         HashMap::new(),
         &HashSet::new(),
-        None,
+        struct_roles,
     )
 }

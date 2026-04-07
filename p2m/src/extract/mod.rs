@@ -77,22 +77,3 @@ pub(crate) fn extract_positioned_text(
 
     Ok(((all_items, all_rects, all_lines), page_thresholds))
 }
-
-/// Multiply two 2D affine transformation matrices.
-///
-/// Matrix format: `[a, b, c, d, e, f]` representing:
-/// ```text
-/// | a  b  0 |
-/// | c  d  0 |
-/// | e  f  1 |
-/// ```
-pub(crate) fn multiply_matrices(m1: &[f32; 6], m2: &[f32; 6]) -> [f32; 6] {
-    [
-        m1[0] * m2[0] + m1[1] * m2[2],
-        m1[0] * m2[1] + m1[1] * m2[3],
-        m1[2] * m2[0] + m1[3] * m2[2],
-        m1[2] * m2[1] + m1[3] * m2[3],
-        m1[4] * m2[0] + m1[5] * m2[2] + m2[4],
-        m1[4] * m2[1] + m1[5] * m2[3] + m2[5],
-    ]
-}

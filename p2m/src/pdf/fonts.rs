@@ -16,8 +16,6 @@ use crate::pdf::tounicode::{CMapEntry, FontCMaps};
 use crate::text::unicode::decode_text_string;
 use crate::types::{FontEncodingMap, FontWidthInfo, PageFontEncodings, PageFontWidths};
 
-// ── CMap choice ────────────────────────────────────────────────────
-
 /// Which CMap to use for a given font: the original `ToUnicode` or a
 /// GID-remapped variant built from the `FontFile2` glyph table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,8 +26,6 @@ pub(crate) enum CMapChoice {
     /// Use the remapped (GID-based) CMap.
     Remapped,
 }
-
-// ── CMap decision cache ────────────────────────────────────────────
 
 /// Minimum number of bytes that must be sampled before committing to a
 /// [`CMapChoice`].
@@ -122,8 +118,6 @@ impl CMapDecisionCache {
         }
     }
 }
-
-// ── Font width extraction ──────────────────────────────────────────
 
 /// Build width tables for every font resource in `fonts`.
 ///
@@ -318,8 +312,6 @@ pub(crate) fn parse_cid_w_array(
     }
 }
 
-// ── String width computation ───────────────────────────────────────
-
 /// Compute the width of a byte string in text-space units.
 ///
 /// Accounts for per-glyph widths, character spacing, and word spacing
@@ -376,8 +368,6 @@ pub(crate) fn compute_string_width_ts(
 
     width
 }
-
-// ── Font encoding ──────────────────────────────────────────────────
 
 /// Result of parsing an `/Encoding` dictionary.
 #[derive(Debug, Clone)]
@@ -547,8 +537,6 @@ fn glyph_name_to_char(name: &str) -> Option<char> {
     None
 }
 
-// ── Text extraction from operand ───────────────────────────────────
-
 /// Decode a PDF string operand into a Unicode `String`.
 ///
 /// Applies a multi-layer fallback strategy:
@@ -595,7 +583,7 @@ pub(crate) fn extract_text_from_operand(
         return None;
     }
 
-    // ── Layer 1: ToUnicode CMap ────────────────────────────────────
+    // Layer 1: ToUnicode CMap
     let obj_num = font_tounicode_refs.get(current_font).copied().unwrap_or(0);
 
     // Try inline CMap first, then global FontCMaps by object number.
@@ -653,7 +641,7 @@ pub(crate) fn extract_text_from_operand(
         }
     }
 
-    // ── Layer 2: /Differences encoding ─────────────────────────────
+    // Layer 2: /Differences encoding
     let enc_map = font_encodings
         .get(current_font)
         .or_else(|| encoding_cache.get(current_font));
@@ -679,7 +667,7 @@ pub(crate) fn extract_text_from_operand(
         }
     }
 
-    // ── Layer 3: UTF-16BE (BOM detected) ───────────────────────────
+    // Layer 3: UTF-16BE (BOM detected)
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         let decoded = decode_text_string(bytes);
         if !decoded.is_empty() {
@@ -687,14 +675,14 @@ pub(crate) fn extract_text_from_operand(
         }
     }
 
-    // ── Layer 4: UTF-8 heuristic ───────────────────────────────────
+    // Layer 4: UTF-8 heuristic
     if let Ok(text) = std::str::from_utf8(bytes) {
         if !text.is_empty() && text.chars().all(|c| c != '\0') {
             return Some(apply_symbol_pua(base_font_name, text));
         }
     }
 
-    // ── Layer 5: Latin-1 fallback ──────────────────────────────────
+    // Layer 5: Latin-1 fallback
     #[allow(clippy::cast_lossless)]
     let text: String = bytes.iter().map(|&b| b as char).collect();
     if text.is_empty() {
@@ -703,8 +691,6 @@ pub(crate) fn extract_text_from_operand(
         Some(apply_symbol_pua(base_font_name, &text))
     }
 }
-
-// decode_with_cmap removed — use ToUnicodeCMap::decode_cids() directly.
 
 /// Apply Private Use Area remapping for Symbol and Wingdings fonts.
 ///
@@ -730,8 +716,6 @@ fn apply_symbol_pua(base_font_name: &str, text: &str) -> String {
         })
         .collect()
 }
-
-// ── Text quality scoring ───────────────────────────────────────────
 
 /// Heuristic quality score for decoded text.
 ///
@@ -801,8 +785,6 @@ pub(crate) fn score_text(text: &str) -> i32 {
     score
 }
 
-// ── Clean PUA characters ───────────────────────────────────────────
-
 /// Strip Unicode Private Use Area characters from text.
 ///
 /// PUA codepoints (`E000`–`F8FF`, plus supplementary planes) are removed
@@ -828,8 +810,6 @@ const fn is_private_use_area(ch: char) -> bool {
         || (code >= 0xF_0000 && code <= 0xF_FFFD)
         || (code >= 0x10_0000 && code <= 0x10_FFFD)
 }
-
-// ── Helper: resolve PDF objects ────────────────────────────────────
 
 /// Resolve a PDF object that may be a `Reference` to an `Array`.
 pub(crate) fn resolve_array<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a Vec<Object>> {
@@ -969,8 +949,6 @@ fn obj_to_u32_resolved(doc: &Document, obj: &Object) -> Option<u32> {
 mod tests {
     use super::*;
 
-    // ── CMapDecisionCache ──────────────────────────────────────────
-
     #[test]
     fn decision_cache_returns_none_until_threshold() {
         let mut cache = CMapDecisionCache::new();
@@ -1001,8 +979,6 @@ mod tests {
         assert_eq!(again, Some(CMapChoice::Primary));
     }
 
-    // ── score_text ─────────────────────────────────────────────────
-
     #[test]
     fn score_natural_text_higher_than_garbage() {
         let good = score_text("The quick brown fox jumps over the lazy dog.");
@@ -1014,8 +990,6 @@ mod tests {
     fn score_empty_is_zero() {
         assert_eq!(score_text(""), 0);
     }
-
-    // ── clean_pua_chars ────────────────────────────────────────────
 
     #[test]
     fn clean_pua_strips_bmp_pua() {
@@ -1029,8 +1003,6 @@ mod tests {
         assert_eq!(clean_pua_chars(input), "Hello World");
     }
 
-    // ── is_gid_glyph_name ──────────────────────────────────────────
-
     #[test]
     fn gid_glyph_names_detected() {
         assert!(is_gid_glyph_name("glyph00042"));
@@ -1039,8 +1011,6 @@ mod tests {
         assert!(!is_gid_glyph_name("Agrave"));
         assert!(!is_gid_glyph_name("space"));
     }
-
-    // ── glyph_name_to_char ─────────────────────────────────────────
 
     #[test]
     fn glyph_name_space() {
@@ -1063,8 +1033,6 @@ mod tests {
     fn glyph_name_u_format() {
         assert_eq!(glyph_name_to_char("u0041"), Some('A'));
     }
-
-    // ── parse_cid_w_array ──────────────────────────────────────────
 
     #[test]
     fn parse_w_array_consecutive_format() {
@@ -1101,8 +1069,6 @@ mod tests {
         }
     }
 
-    // ── compute_string_width_ts ────────────────────────────────────
-
     #[test]
     fn width_simple_font_ascii() {
         let mut widths = HashMap::new();
@@ -1121,8 +1087,6 @@ mod tests {
         let expected = 14.4_f32;
         assert!((w - expected).abs() < 0.01, "w={w}, expected={expected}");
     }
-
-    // ── private_use_area ───────────────────────────────────────────
 
     #[test]
     fn pua_detection() {

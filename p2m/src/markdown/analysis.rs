@@ -30,7 +30,11 @@ pub(super) fn font_size_rarity(font_size: f32, stats: &FontStats) -> f32 {
 }
 
 /// Calculate font stats directly from items (before grouping into lines).
-#[allow(dead_code, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+#[allow(
+    dead_code,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
 pub(super) fn calculate_font_stats_from_items(items: &[TextItem]) -> FontStats {
     let mut size_counts: HashMap<i32, usize> = HashMap::new();
 

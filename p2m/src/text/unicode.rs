@@ -132,8 +132,6 @@ pub fn is_cid_font(font: &str) -> bool {
     font.starts_with("C2_") || font.starts_with("C0_")
 }
 
-// ── Arabic visual-order reversal ────────────────────────────────────
-
 /// Check if a character is an Arabic presentation form (not BOM).
 const fn is_arabic_presentation_form(c: char) -> bool {
     matches!(c, '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFE}')
@@ -246,9 +244,7 @@ mod tests {
             "presentation forms should be normalized: {result:?}"
         );
         assert!(
-            result
-                .chars()
-                .any(|c| matches!(c, '\u{0600}'..='\u{06FF}')),
+            result.chars().any(|c| matches!(c, '\u{0600}'..='\u{06FF}')),
             "should contain base Arabic characters: {result:?}"
         );
     }

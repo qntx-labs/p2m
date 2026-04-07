@@ -174,8 +174,9 @@ fn is_page_number_line(trimmed: &str) -> bool {
 /// Convert URLs to markdown links.
 #[allow(clippy::expect_used)]
 fn format_urls(text: &str) -> String {
-    static URL_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"https?://[^\s<>\)\]]+[^\s<>\)\]\.\,;]").expect("valid regex"));
+    static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https?://[^\s<>\)\]]+[^\s<>\)\]\.\,;]").expect("valid regex")
+    });
 
     let mut result = String::with_capacity(text.len());
     let mut last_end = 0;

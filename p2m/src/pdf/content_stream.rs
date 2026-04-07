@@ -26,14 +26,10 @@ use crate::types::{
     FontWidthInfo, ItemKind, Line, PageExtraction, PageFontEncodings, PageNum, Rect, TextItem,
 };
 
-// ── Constants ──────────────────────────────────────────────────────
-
 /// Maximum number of content-stream operations to process per page.
 /// Pages exceeding this are skipped to avoid excessive CPU usage on
 /// pathological PDFs (e.g. vector art with millions of path ops).
 const MAX_OPERATIONS: usize = 1_000_000;
-
-// ── Public API ─────────────────────────────────────────────────────
 
 /// Extract text items, rectangles, and lines from a single page's
 /// content stream.
@@ -61,15 +57,11 @@ pub(crate) fn extract_page_text_items(
     let mut rects: Vec<Rect> = Vec::new();
     let mut clip_rects: Vec<Rect> = Vec::new();
     let mut lines: Vec<Line> = Vec::new();
-
-    // ── Path construction state ────────────────────────────────
     let mut path_subpath_start: Option<(f32, f32)> = None;
     let mut path_current: Option<(f32, f32)> = None;
     let mut pending_lines: Vec<(f32, f32, f32, f32)> = Vec::new();
     let mut pending_subpaths: Vec<Vec<(f32, f32, f32, f32)>> = Vec::new();
     let mut fill_rects: Vec<Rect> = Vec::new();
-
-    // ── Font setup ─────────────────────────────────────────────
     let fonts = doc.get_page_fonts(page_id).unwrap_or_default();
     let (font_encodings, has_gid_fonts) = build_font_encodings(doc, &fonts);
     let font_widths = build_font_widths(doc, &fonts);
@@ -115,11 +107,7 @@ pub(crate) fn extract_page_text_items(
     let mut encoding_cache: HashMap<String, crate::types::FontEncodingMap> = HashMap::new();
 
     let mut cmap_decisions = CMapDecisionCache::new();
-
-    // ── XObject map ────────────────────────────────────────────
     let xobjects = get_page_xobjects(doc, page_id);
-
-    // ── Content stream loading ─────────────────────────────────
     let content_data = doc
         .get_page_content(page_id)
         .map_err(|e| Error::Parse(e.to_string()))?;
@@ -133,13 +121,9 @@ pub(crate) fn extract_page_text_items(
         );
         return Ok(((Vec::new(), Vec::new(), Vec::new()), false, false));
     }
-
-    // ── Graphics state ─────────────────────────────────────────
     let mut ctm = [1.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut text_rendering_mode: i32 = 0;
     let mut gstate_stack: Vec<GraphicsState> = Vec::new();
-
-    // ── Text state ─────────────────────────────────────────────
     let mut current_font = String::new();
     let mut current_font_size: f32 = 12.0;
     let mut text_leading: f32 = 0.0;
@@ -148,26 +132,17 @@ pub(crate) fn extract_page_text_items(
     let mut text_matrix = [1.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut line_matrix = [1.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0];
     let mut in_text_block = false;
-
-    // ── Fill colour state (invisible-text detection) ───────────
     let mut fill_is_white = false;
-
-    // ── Rotation detection ─────────────────────────────────────
     let mut rotation_votes = RotationVotes {
         horizontal: 0,
         rotated: 0,
     };
-
-    // ── Marked content tracking ────────────────────────────────
     let mut marked_content_stack: Vec<MarkedContentEntry> = Vec::new();
     let mut suppress_glyph_extraction = false;
     let mut actual_text_start_tm: Option<[f32; 6]> = None;
-
-    // ── Main operator loop ─────────────────────────────────────
     for op in &content.operations {
         trace!("{} {:?}", op.operator, op.operands);
         match op.operator.as_str() {
-            // ── Graphics state save / restore ──────────────────
             "q" => {
                 gstate_stack.push(GraphicsState {
                     ctm,
@@ -184,8 +159,6 @@ pub(crate) fn extract_page_text_items(
                     word_spacing = saved.word_spacing;
                 }
             }
-
-            // ── CTM concatenation ──────────────────────────────
             "cm"
                 if op.operands.len() >= 6 => {
                     let new_matrix = [
@@ -198,8 +171,6 @@ pub(crate) fn extract_page_text_items(
                     ];
                     ctm = multiply_matrices(&new_matrix, &ctm);
                 }
-
-            // ── Text block begin / end ─────────────────────────
             "BT" => {
                 in_text_block = true;
                 text_matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
@@ -209,8 +180,6 @@ pub(crate) fn extract_page_text_items(
             "ET" => {
                 in_text_block = false;
             }
-
-            // ── Font selection ─────────────────────────────────
             "Tf"
                 if op.operands.len() >= 2 => {
                     if let Ok(name) = op.operands[0].as_name() {
@@ -225,15 +194,11 @@ pub(crate) fn extract_page_text_items(
                         }
                     }
                 }
-
-            // ── Text leading ───────────────────────────────────
             "TL" => {
                 if let Some(tl) = op.operands.first().and_then(get_number) {
                     text_leading = tl;
                 }
             }
-
-            // ── Text rendering mode ────────────────────────────
             "Tr" => {
                 if let Some(mode) = op.operands.first().and_then(get_number) {
                     #[allow(clippy::cast_possible_truncation)]
@@ -242,22 +207,16 @@ pub(crate) fn extract_page_text_items(
                     }
                 }
             }
-
-            // ── Character spacing ──────────────────────────────
             "Tc" => {
                 if let Some(tc) = op.operands.first().and_then(get_number) {
                     char_spacing = tc;
                 }
             }
-
-            // ── Word spacing ───────────────────────────────────
             "Tw" => {
                 if let Some(tw) = op.operands.first().and_then(get_number) {
                     word_spacing = tw;
                 }
             }
-
-            // ── Text position offset ───────────────────────────
             "Td" | "TD"
                 if op.operands.len() >= 2 => {
                     let tx = get_number(&op.operands[0]).unwrap_or(0.0);
@@ -269,8 +228,6 @@ pub(crate) fn extract_page_text_items(
                         text_leading = -ty;
                     }
                 }
-
-            // ── Set text matrix directly ───────────────────────
             "Tm"
                 if op.operands.len() >= 6 => {
                     for (i, operand) in op.operands.iter().take(6).enumerate() {
@@ -279,8 +236,6 @@ pub(crate) fn extract_page_text_items(
                     }
                     line_matrix = text_matrix;
                 }
-
-            // ── Next line ──────────────────────────────────────
             "T*" => {
                 let tl = if text_leading != 0.0 {
                     text_leading
@@ -291,8 +246,6 @@ pub(crate) fn extract_page_text_items(
                 line_matrix[5] += (-tl) * line_matrix[3];
                 text_matrix = line_matrix;
             }
-
-            // ── Show text string ───────────────────────────────
             "Tj"
                 if in_text_block && !op.operands.is_empty() => {
                     handle_tj(
@@ -321,8 +274,6 @@ pub(crate) fn extract_page_text_items(
                         &mut items,
                     );
                 }
-
-            // ── Show text array with positioning ───────────────
             "TJ"
                 if in_text_block && !op.operands.is_empty() => {
                     handle_tj_array(
@@ -351,8 +302,6 @@ pub(crate) fn extract_page_text_items(
                         &mut items,
                     );
                 }
-
-            // ── Next line + show text ──────────────────────────
             "'" => {
                 // Equivalent to T* then Tj.
                 let tl = if text_leading != 0.0 {
@@ -388,8 +337,6 @@ pub(crate) fn extract_page_text_items(
                     );
                 }
             }
-
-            // ── Set spacing + next line + show text ────────────
             "\""
                 // " aw ac string: set Tw, Tc, then T* Tj
                 if op.operands.len() >= 3 => {
@@ -432,8 +379,6 @@ pub(crate) fn extract_page_text_items(
                         );
                     }
                 }
-
-            // ── Rectangle operator ─────────────────────────────
             "re"
                 if op.operands.len() >= 4 => {
                     let rx = get_number(&op.operands[0]).unwrap_or(0.0);
@@ -452,8 +397,6 @@ pub(crate) fn extract_page_text_items(
                         page: page_num,
                     });
                 }
-
-            // ── Path construction: moveto ──────────────────────
             "m"
                 if op.operands.len() >= 2 => {
                     let px = get_number(&op.operands[0]).unwrap_or(0.0);
@@ -461,8 +404,6 @@ pub(crate) fn extract_page_text_items(
                     path_subpath_start = Some((px, py));
                     path_current = Some((px, py));
                 }
-
-            // ── Path construction: lineto ──────────────────────
             "l"
                 if op.operands.len() >= 2 => {
                     if let Some((cx, cy)) = path_current {
@@ -472,8 +413,6 @@ pub(crate) fn extract_page_text_items(
                         path_current = Some((px, py));
                     }
                 }
-
-            // ── Path construction: closepath ───────────────────
             "h" => {
                 if let (Some((cx, cy)), Some((sx, sy))) = (path_current, path_subpath_start) {
                     if (cx - sx).abs() > 0.01 || (cy - sy).abs() > 0.01 {
@@ -485,8 +424,6 @@ pub(crate) fn extract_page_text_items(
                     pending_subpaths.push(std::mem::take(&mut pending_lines));
                 }
             }
-
-            // ── Stroke / close-and-stroke ──────────────────────
             "S" | "s" => {
                 if op.operator == "s" {
                     if let (Some((cx, cy)), Some((sx, sy))) = (path_current, path_subpath_start) {
@@ -500,8 +437,6 @@ pub(crate) fn extract_page_text_items(
                 path_subpath_start = None;
                 path_current = None;
             }
-
-            // ── Fill + stroke ──────────────────────────────────
             "B" | "B*" | "b" | "b*" => {
                 if op.operator == "b" || op.operator == "b*" {
                     if let (Some((cx, cy)), Some((sx, sy))) = (path_current, path_subpath_start) {
@@ -515,8 +450,6 @@ pub(crate) fn extract_page_text_items(
                 path_subpath_start = None;
                 path_current = None;
             }
-
-            // ── Fill only ──────────────────────────────────────
             "f" | "F" | "f*" => {
                 if !pending_lines.is_empty() {
                     pending_subpaths.push(std::mem::take(&mut pending_lines));
@@ -526,8 +459,6 @@ pub(crate) fn extract_page_text_items(
                 path_subpath_start = None;
                 path_current = None;
             }
-
-            // ── Clip operator ──────────────────────────────────
             "W" | "W*" => {
                 let segs: Vec<(f32, f32, f32, f32)> = if pending_lines.is_empty() {
                     pending_subpaths.last().cloned().unwrap_or_default()
@@ -539,16 +470,12 @@ pub(crate) fn extract_page_text_items(
                 }
                 // Do NOT clear pending_lines — the following `n` does that.
             }
-
-            // ── End path (no-op paint) ─────────────────────────
             "n" => {
                 pending_lines.clear();
                 pending_subpaths.clear();
                 path_subpath_start = None;
                 path_current = None;
             }
-
-            // ── XObject invocation ─────────────────────────────
             "Do"
                 if !op.operands.is_empty() => {
                     if let Ok(name) = op.operands[0].as_name() {
@@ -584,16 +511,12 @@ pub(crate) fn extract_page_text_items(
                         }
                     }
                 }
-
-            // ── Marked content: begin (no properties) ──────────
             "BMC" => {
                 marked_content_stack.push(MarkedContentEntry {
                     actual_text: None,
                     mcid: None,
                 });
             }
-
-            // ── Marked content: begin with properties ──────────
             "BDC" => {
                 let mut actual_text: Option<String> = None;
                 let mut mcid: Option<i64> = None;
@@ -621,8 +544,6 @@ pub(crate) fn extract_page_text_items(
                 }
                 marked_content_stack.push(MarkedContentEntry { actual_text, mcid });
             }
-
-            // ── Marked content: end ────────────────────────────
             "EMC" => {
                 if let Some(entry) = marked_content_stack.pop() {
                     if let Some(at) = entry.actual_text {
@@ -662,8 +583,6 @@ pub(crate) fn extract_page_text_items(
                     }
                 }
             }
-
-            // ── Fill colour operators (detect white/invisible) ─
             "g" => {
                 if let Some(gray) = op.operands.first().and_then(get_number) {
                     fill_is_white = gray > 0.95;
@@ -703,8 +622,6 @@ pub(crate) fn extract_page_text_items(
             _ => {}
         }
     }
-
-    // ── Fallback rect sources ──────────────────────────────────
     // Only use clip/fill rects when no `re` rects exist on this page.
     if rects.is_empty() {
         dedup_rects(&mut clip_rects);
@@ -716,15 +633,11 @@ pub(crate) fn extract_page_text_items(
             rects = clip_rects;
         }
     }
-
-    // ── Rotation correction ────────────────────────────────────
     let (items, rects, lines, coords_rotated) =
         correct_rotated_page(items, rects, lines, &rotation_votes);
 
     Ok(((items, rects, lines), has_gid_fonts, coords_rotated))
 }
-
-// ── Internal types ─────────────────────────────────────────────────
 
 /// Saved graphics state for q/Q nesting.
 #[derive(Debug, Clone, Copy)]
@@ -762,8 +675,6 @@ enum XObjectKind {
     /// Form XObject (reusable content stream) with its object ID.
     Form(ObjectId),
 }
-
-// ── Operator handlers ──────────────────────────────────────────────
 
 /// Handle the `Tj` (show text string) operator.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1108,8 +1019,6 @@ fn handle_show_text_simple(
     }
 }
 
-// ── Path helpers ───────────────────────────────────────────────────
-
 /// Transform and emit stroked line segments from `pending_lines`.
 fn emit_stroked_lines(
     ctm: &[f32; 6],
@@ -1227,8 +1136,6 @@ fn axis_aligned_rect_from_segs(
     }
 }
 
-// ── Matrix and numeric helpers ─────────────────────────────────────
-
 /// Multiply two 2D transformation matrices.
 ///
 /// Matrix format: `[a, b, c, d, e, f]` representing:
@@ -1271,8 +1178,6 @@ fn vote_rotation(combined: &[f32; 6], votes: &mut RotationVotes) {
         votes.rotated += 1;
     }
 }
-
-// ── XObject helpers ────────────────────────────────────────────────
 
 /// Collect XObjects from page resources, categorised by type.
 fn get_page_xobjects(doc: &Document, page_id: ObjectId) -> HashMap<String, XObjectKind> {
@@ -1324,8 +1229,6 @@ fn get_page_xobjects(doc: &Document, page_id: ObjectId) -> HashMap<String, XObje
 
     xobject_types
 }
-
-// ── PDF comment stripping ──────────────────────────────────────────
 
 /// Strip PDF comments (`%` to end of line) from content-stream bytes.
 ///
@@ -1382,8 +1285,6 @@ fn strip_pdf_comments(data: &[u8]) -> Vec<u8> {
     result
 }
 
-// ── Rectangle deduplication ────────────────────────────────────────
-
 /// Remove near-duplicate rects (same coordinates within 0.5 pt tolerance).
 ///
 /// Some PDFs emit a full-page clip path for every text block, producing
@@ -1420,8 +1321,6 @@ fn dedup_rects(rects: &mut Vec<Rect>) {
             && (a.height - b.height).abs() < 0.5
     });
 }
-
-// ── Rotation detection and correction ──────────────────────────────
 
 /// Detect if most text items on a page are rotated 90° or 270°, and if so,
 /// swap x/y coordinates (plus widths/heights) so the layout engine sees
@@ -1493,8 +1392,6 @@ fn get_operand_bytes(obj: &Object) -> Option<&[u8]> {
         _ => None,
     }
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

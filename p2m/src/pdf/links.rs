@@ -12,11 +12,7 @@ use crate::types::{ItemKind, PageNum, TextItem};
 ///
 /// Returns `TextItem`s positioned at the link's bounding box with
 /// `ItemKind::Link(url)`.
-pub fn extract_page_links(
-    doc: &Document,
-    page_id: ObjectId,
-    page_num: u32,
-) -> Vec<TextItem> {
+pub fn extract_page_links(doc: &Document, page_id: ObjectId, page_num: u32) -> Vec<TextItem> {
     let mut items = Vec::new();
 
     let Ok(page_dict) = doc.get_dictionary(page_id) else {
@@ -206,15 +202,10 @@ fn walk_form_fields(
             .unwrap_or(b"");
 
         let value = match ft {
-            b"Tx" | b"Ch" => field_dict
-                .get(b"V")
-                .ok()
-                .and_then(|o| match o {
-                    Object::String(bytes, _) => {
-                        Some(String::from_utf8_lossy(bytes).to_string())
-                    }
-                    _ => None,
-                }),
+            b"Tx" | b"Ch" => field_dict.get(b"V").ok().and_then(|o| match o {
+                Object::String(bytes, _) => Some(String::from_utf8_lossy(bytes).to_string()),
+                _ => None,
+            }),
             b"Btn" => field_dict
                 .get(b"V")
                 .ok()

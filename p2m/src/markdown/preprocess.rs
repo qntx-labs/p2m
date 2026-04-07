@@ -125,11 +125,7 @@ pub(super) fn merge_drop_caps(lines: &[TextLine], base_size: f32) -> Vec<TextLin
                 let prev_text = prev_line.text();
                 let prev_trimmed = prev_text.trim();
 
-                if prev_trimmed
-                    .chars()
-                    .next()
-                    .is_some_and(char::is_lowercase)
-                {
+                if prev_trimmed.chars().next().is_some_and(char::is_lowercase) {
                     let is_para_start = if idx == 0 {
                         true
                     } else {
@@ -240,7 +236,7 @@ fn is_y_at_edge(
     clippy::cast_precision_loss,
     clippy::excessive_nesting,
     clippy::items_after_statements,
-    clippy::too_many_lines,
+    clippy::too_many_lines
 )]
 pub(super) fn strip_repeated_lines(lines: Vec<TextLine>, page_count: u32) -> Vec<TextLine> {
     if lines.is_empty() || page_count < 3 {

@@ -6,12 +6,11 @@
 //! downstream code attach semantic roles (heading, paragraph, table cell,
 //! list item, ...) to extracted [`TextItem`](crate::types::TextItem)s.
 
-use log::debug;
-use lopdf::{Document, Object, ObjectId};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-// ── Standard structure types ────────────────────────────────────────
+use log::debug;
+use lopdf::{Document, Object, ObjectId};
 
 /// Standard PDF structure element types (ISO 32000-1, Table 333-340).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -193,8 +192,6 @@ impl StructRole {
     }
 }
 
-// ── Marked content reference ────────────────────────────────────────
-
 /// A leaf reference linking a structure element to content-stream content.
 #[derive(Debug, Clone)]
 pub struct MarkedContentRef {
@@ -203,8 +200,6 @@ pub struct MarkedContentRef {
     /// Page `ObjectId` this content belongs to (from `/Pg` key).
     pub page_id: Option<ObjectId>,
 }
-
-// ── Structure element ───────────────────────────────────────────────
 
 /// A node in the PDF structure tree.
 #[derive(Debug, Clone)]
@@ -222,8 +217,6 @@ pub struct StructElement {
     /// Child structure elements.
     pub children: Vec<StructElement>,
 }
-
-// ── Structure tree (top level) ──────────────────────────────────────
 
 /// Parsed PDF structure tree.
 ///
@@ -327,8 +320,6 @@ impl StructTree {
     }
 }
 
-// ── Tagged table structures ────────────────────────────────────────
-
 /// A table cell extracted from the structure tree.
 #[derive(Debug, Clone)]
 pub struct StructTableCell {
@@ -429,11 +420,7 @@ pub struct FlatStructElement {
     pub child_count: usize,
 }
 
-fn flatten_recursive(
-    elements: &[StructElement],
-    out: &mut Vec<FlatStructElement>,
-    depth: usize,
-) {
+fn flatten_recursive(elements: &[StructElement], out: &mut Vec<FlatStructElement>, depth: usize) {
     for elem in elements {
         out.push(FlatStructElement {
             role: elem.role.clone(),
@@ -445,8 +432,6 @@ fn flatten_recursive(
         flatten_recursive(&elem.children, out, depth + 1);
     }
 }
-
-// ── Parsing helpers ─────────────────────────────────────────────────
 
 /// Parse the `/RoleMap` dictionary (custom tag -> standard tag).
 fn parse_role_map(doc: &Document, struct_root: &lopdf::Dictionary) -> HashMap<String, String> {
@@ -660,14 +645,7 @@ fn parse_struct_element_dict(
                         });
                     }
                 } else {
-                    parse_struct_element_dict(
-                        doc,
-                        d,
-                        role_map,
-                        page_id,
-                        depth + 1,
-                        &mut children,
-                    );
+                    parse_struct_element_dict(doc, d, role_map, page_id, depth + 1, &mut children);
                 }
             }
             _ => {}
@@ -741,8 +719,6 @@ fn resolve_dict<'a>(doc: &'a Document, obj: &'a Object) -> Option<&'a lopdf::Dic
         _ => None,
     }
 }
-
-// ── PDF byte pre-processing ────────────────────────────────────────
 
 /// Fix malformed structure element `/S` entries in raw PDF bytes.
 ///
@@ -828,8 +804,7 @@ pub fn fix_bare_struct_names(buf: &[u8]) -> Cow<'_, [u8]> {
             let end = after + name.len();
             if end <= buf.len()
                 && &buf[after..end] == *name
-                && (end >= buf.len()
-                    || matches!(buf[end], b'\n' | b'\r' | b' ' | b'/' | b'>'))
+                && (end >= buf.len() || matches!(buf[end], b'\n' | b'\r' | b' ' | b'/' | b'>'))
             {
                 let out = result.get_or_insert_with(|| buf[..after].to_vec());
                 if out.len() < after {

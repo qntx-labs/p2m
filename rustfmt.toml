@@ -1,5 +1,11 @@
 edition = "2024"
 
+# Skip generated lookup-table files that cause rustfmt stack overflow.
+ignore = [
+    "p2m/src/pdf/adobe_korea1.rs",
+    "p2m/src/pdf/glyph_names.rs",
+]
+
 # Line width and formatting
 max_width = 100
 use_small_heuristics = "Default"

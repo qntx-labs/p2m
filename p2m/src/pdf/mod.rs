@@ -1,13 +1,14 @@
 //! Low-level PDF parsing: document loading, validation, and content extraction.
 
+#[allow(dead_code)]
 pub mod adobe_korea1;
 pub mod content_stream;
 pub mod fonts;
 pub mod glyph_names;
 pub mod links;
+#[allow(dead_code)]
 pub mod structure_tree;
 pub mod tounicode;
-pub mod xobjects;
 
 use std::path::Path;
 
@@ -18,6 +19,7 @@ use crate::error::{Error, Result};
 /// Load a PDF from a file path.
 ///
 /// The document is parsed once and returned along with the page count.
+#[allow(dead_code)]
 pub fn load_from_path(path: impl AsRef<Path>) -> Result<(Document, u32)> {
     let buffer = std::fs::read(path)?;
     load_from_bytes(&buffer)
@@ -27,10 +29,25 @@ pub fn load_from_path(path: impl AsRef<Path>) -> Result<(Document, u32)> {
 pub fn load_from_bytes(buffer: &[u8]) -> Result<(Document, u32)> {
     validate_bytes(buffer)?;
 
-    let doc = Document::load_mem(buffer)?;
+    let fixed = structure_tree::fix_bare_struct_names(buffer);
+    let buf = fixed.as_ref();
+
+    let doc = match Document::load_mem(buf) {
+        Ok(d) => d,
+        Err(ref e) if is_encrypted_lopdf_error(e) => Document::load_mem_with_password(buf, "")?,
+        Err(e) => return Err(e.into()),
+    };
     #[allow(clippy::cast_possible_truncation)]
     let page_count = doc.get_pages().len() as u32;
     Ok((doc, page_count))
+}
+
+/// Check whether a lopdf error indicates an encrypted PDF.
+fn is_encrypted_lopdf_error(e: &lopdf::Error) -> bool {
+    matches!(
+        e,
+        lopdf::Error::Decryption(_) | lopdf::Error::InvalidPassword
+    )
 }
 
 /// Validate that a byte buffer looks like a PDF.
@@ -95,6 +112,7 @@ fn detect_type_hint(buffer: &[u8]) -> String {
 }
 
 /// Get page height in points from the `MediaBox`.
+#[allow(dead_code)]
 pub fn page_height(doc: &Document, page_id: lopdf::ObjectId) -> Option<f32> {
     let page_dict = doc.get_dictionary(page_id).ok()?;
     let media_box = page_dict.get(b"MediaBox").ok()?;

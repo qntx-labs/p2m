@@ -27,15 +27,18 @@ pub fn should_join_items(
 
     // Always join if current starts with punctuation that follows without space.
     if let Some(c) = curr_first
-        && matches!(c, '.' | ',' | ';' | '!' | '?' | ')' | ']' | '}' | '\'') {
-            return true;
-        }
+        && matches!(c, '.' | ',' | ';' | '!' | '?' | ')' | ']' | '}' | '\'')
+    {
+        return true;
+    }
 
     // After colons, add space if followed by alphanumeric.
     if let (Some(p), Some(c)) = (prev_last, curr_first)
-        && p == ':' && c.is_alphanumeric() {
-            return false;
-        }
+        && p == ':'
+        && c.is_alphanumeric()
+    {
+        return false;
+    }
 
     // When we have accurate width from font metrics, use position-based logic.
     if prev_item.width > 0.0 {
@@ -163,8 +166,6 @@ pub fn should_join_items(
         _ => gap < char_width * 0.5,
     }
 }
-
-// ── Canva-style letter-spacing detection ────────────────────────────
 
 /// Detect and fix Canva-style letter-spacing within text items.
 ///
@@ -434,6 +435,9 @@ mod tests {
 
         let rich = make_text_item("rich", 229.0, 34.8, fs);
         let m = make_text_item("m", 277.8, 10.7, fs);
-        assert!(!should_join_items(&rich, &m, threshold), "rich→m should split");
+        assert!(
+            !should_join_items(&rich, &m, threshold),
+            "rich→m should split"
+        );
     }
 }

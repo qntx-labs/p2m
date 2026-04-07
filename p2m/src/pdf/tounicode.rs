@@ -2,10 +2,11 @@
 //!
 //! This module parses `ToUnicode` CMaps to convert CID-encoded text to Unicode.
 
-use log::{debug, warn};
-use lopdf::{Document, Object, ObjectId};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use log::{debug, warn};
+use lopdf::{Document, Object, ObjectId};
 
 use crate::pdf::glyph_names::glyph_to_char;
 
@@ -176,11 +177,7 @@ impl ToUnicodeCMap {
         } else if !src_hex_lengths.is_empty() {
             // No codespace declaration: infer from entry hex lengths
             let max_hex_len = src_hex_lengths.iter().max().copied().unwrap_or(4);
-            if max_hex_len <= 2 {
-                1
-            } else {
-                2
-            }
+            if max_hex_len <= 2 { 1 } else { 2 }
         } else {
             2 // Default to 2-byte
         };
@@ -430,6 +427,7 @@ impl ToUnicodeCMap {
     /// Per-byte CMap lookup without Latin-1 fallback.
     /// Returns `(raw_byte, Option<cmap_result>)` for each byte.
     /// Only meaningful for single-byte (code_byte_length==1) CMaps.
+    #[allow(dead_code)]
     pub fn lookup_bytes(&self, bytes: &[u8]) -> Vec<(u8, Option<String>)> {
         bytes
             .iter()
@@ -1239,11 +1237,7 @@ fn bytes_to_unicode_string(bytes: &[u8]) -> Option<String> {
             out.push(ch);
         }
     }
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 #[derive(Debug, Clone)]
@@ -1403,11 +1397,7 @@ fn parse_encoding_cmap_stream(data: &[u8]) -> Option<EncodingCMap> {
         cs_len
     } else if !src_hex_lengths.is_empty() {
         let max_hex_len = src_hex_lengths.iter().max().copied().unwrap_or(4);
-        if max_hex_len <= 2 {
-            1
-        } else {
-            2
-        }
+        if max_hex_len <= 2 { 1 } else { 2 }
     } else {
         2
     };
@@ -1784,6 +1774,7 @@ impl FontCMaps {
     /// will be missing, causing text extraction to produce empty/garbage text
     /// which triggers `needs_ocr` fallback. This is ideal for hybrid OCR
     /// pipelines where GPU OCR is always available as a fallback.
+    #[allow(dead_code)]
     pub fn from_doc_pages_fast(doc: &Document, page_filter: Option<&HashSet<u32>>) -> Self {
         Self::from_doc_pages_inner(doc, page_filter, true)
     }

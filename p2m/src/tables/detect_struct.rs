@@ -1,57 +1,59 @@
 //! Structure-tree-based table detection.
 //!
 //! When a PDF has a well-formed structure tree with `/Table` > `/TR` > `/TD|TH`
-//! elements linked to MCIDs, this module builds `Table` structs directly from
+//! elements linked to MCIDs, this module builds [`Table`] structs directly from
 //! the semantic hierarchy — no geometry heuristics needed.
 
 use std::collections::HashMap;
 
 use log::debug;
 
-use crate::pdf::structure_tree::StructTable;
-use crate::types::TextItem;
-
 use super::Table;
+use crate::pdf::structure_tree::StructTable;
+use crate::types::{PageNum, TextItem};
 
-/// Build tables from structure-tree table descriptors by matching MCIDs to `TextItems`.
+/// Build tables from structure-tree table descriptors by matching MCIDs to
+/// [`TextItem`]s.
 ///
-/// Returns tables for the given page.  Tables where fewer than 50% of cells
-/// resolve to `TextItems` are rejected (stale or broken structure tree).
-pub fn detect_tables_from_struct_tree(
+/// Tables where fewer than 30% of cells resolve to items are rejected (stale
+/// or broken structure tree).
+#[allow(clippy::cast_precision_loss)]
+pub(crate) fn detect_from_struct_tree(
     items: &[TextItem],
     struct_tables: &[StructTable],
-    page: u32,
+    page: PageNum,
 ) -> Vec<Table> {
     if struct_tables.is_empty() {
         return Vec::new();
     }
 
-    // Build MCID → item indices for this page
+    let page_raw = page.get();
+
     let mut mcid_to_items: HashMap<i64, Vec<usize>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
-        if item.page.get() == page
-            && let Some(mcid) = item.mcid {
+        if item.page == page {
+            if let Some(mcid) = item.mcid {
                 mcid_to_items.entry(mcid).or_default().push(idx);
             }
+        }
     }
 
     let mut tables = Vec::new();
 
     for st in struct_tables {
-        // Filter rows to this page
         let page_rows: Vec<_> = st
             .rows
             .iter()
             .filter(|row| {
                 row.cells
                     .iter()
-                    .any(|cell| cell.mcids.iter().any(|&(_, p)| p == page))
+                    .any(|cell| cell.mcids.iter().any(|&(_, p)| p == page_raw))
             })
             .collect();
 
         debug!(
             "page {}: struct table has {} rows on this page (from {} total)",
-            crate::types::PageNum::new(page),
+            page_raw,
             page_rows.len(),
             st.rows.len()
         );
@@ -60,17 +62,15 @@ pub fn detect_tables_from_struct_tree(
             continue;
         }
 
-        // Determine column count from max cells per row
         let num_cols = page_rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
         if num_cols < 2 {
             continue;
         }
 
-        // Build cell text and collect item indices
         let mut cells: Vec<Vec<String>> = Vec::new();
-        let mut all_item_indices: Vec<usize> = Vec::new();
         let mut total_cells = 0u32;
         let mut matched_cells = 0u32;
+        let mut y_max = f32::MIN;
 
         for row in &page_rows {
             let mut row_cells = Vec::with_capacity(num_cols);
@@ -80,22 +80,21 @@ pub fn detect_tables_from_struct_tree(
                 }
                 total_cells += 1;
 
-                // Collect all items for this cell's MCIDs
                 let mut cell_items: Vec<(usize, &TextItem)> = Vec::new();
                 for &(mcid, p) in &cell.mcids {
-                    if p == page
-                        && let Some(indices) = mcid_to_items.get(&mcid) {
+                    if p == page_raw {
+                        if let Some(indices) = mcid_to_items.get(&mcid) {
                             for &idx in indices {
                                 cell_items.push((idx, &items[idx]));
                             }
                         }
+                    }
                 }
 
                 if !cell_items.is_empty() {
                     matched_cells += 1;
                 }
 
-                // Sort by Y (descending = top-to-bottom) then X
                 cell_items.sort_by(|a, b| {
                     b.1.y
                         .partial_cmp(&a.1.y)
@@ -107,27 +106,27 @@ pub fn detect_tables_from_struct_tree(
                         )
                 });
 
+                for (_, item) in &cell_items {
+                    if item.y > y_max {
+                        y_max = item.y;
+                    }
+                }
+
                 let text: String = cell_items
                     .iter()
                     .map(|(_, item)| item.text.as_str())
                     .collect::<Vec<_>>()
                     .join(" ");
 
-                for (idx, _) in &cell_items {
-                    all_item_indices.push(*idx);
-                }
-
                 row_cells.push(text);
             }
 
-            // Pad to num_cols
             while row_cells.len() < num_cols {
                 row_cells.push(String::new());
             }
             cells.push(row_cells);
         }
 
-        // Reject if too few cells matched (stale structure tree)
         let coverage = if total_cells > 0 {
             matched_cells as f32 / total_cells as f32
         } else {
@@ -135,7 +134,7 @@ pub fn detect_tables_from_struct_tree(
         };
         debug!(
             "page {}: struct table {}x{}, {}/{} cells matched ({:.0}%)",
-            crate::types::PageNum::new(page),
+            page_raw,
             page_rows.len(),
             num_cols,
             matched_cells,
@@ -146,50 +145,10 @@ pub fn detect_tables_from_struct_tree(
             continue;
         }
 
-        // Derive row/column positions from item geometry
-        let mut row_positions: Vec<f32> = Vec::new();
-        for row in &page_rows {
-            let y = row
-                .cells
-                .iter()
-                .flat_map(|c| c.mcids.iter())
-                .filter(|(_, p)| *p == page)
-                .filter_map(|(mcid, _)| mcid_to_items.get(mcid))
-                .flatten()
-                .map(|&idx| items[idx].y)
-                .reduce(f32::max)
-                .unwrap_or(0.0);
-            row_positions.push(y);
-        }
-
-        // Column positions: use X positions of first non-empty cell in each column
-        let mut col_positions: Vec<f32> = vec![0.0; num_cols];
-        for (col, col_pos) in col_positions.iter_mut().enumerate() {
-            for row in &page_rows {
-                if col < row.cells.len()
-                    && let Some(x) = row.cells[col]
-                        .mcids
-                        .iter()
-                        .filter(|(_, p)| *p == page)
-                        .filter_map(|(mcid, _)| mcid_to_items.get(mcid))
-                        .flatten()
-                        .map(|&idx| items[idx].x)
-                        .reduce(f32::min)
-                    {
-                        *col_pos = x;
-                        break;
-                    }
-            }
-        }
-
-        all_item_indices.sort_unstable();
-        all_item_indices.dedup();
-
         tables.push(Table {
-            columns: col_positions,
-            rows: row_positions,
             cells,
-            item_indices: all_item_indices,
+            y_top: if y_max == f32::MIN { 0.0 } else { y_max },
+            page,
         });
     }
 
@@ -211,7 +170,7 @@ mod tests {
             height: 10.0,
             font: "Test".to_string(),
             font_size: 10.0,
-            page: crate::types::PageNum::new(page),
+            page: PageNum::new(page),
             bold: false,
             italic: false,
             kind: ItemKind::Text,
@@ -271,19 +230,17 @@ mod tests {
             ],
         }];
 
-        let tables = detect_tables_from_struct_tree(&items, &struct_tables, 1);
+        let tables = detect_from_struct_tree(&items, &struct_tables, PageNum::new(1));
         assert_eq!(tables.len(), 1);
         let table = &tables[0];
         assert_eq!(table.cells.len(), 3);
         assert_eq!(table.cells[0], vec!["Name", "Age"]);
         assert_eq!(table.cells[1], vec!["Alice", "30"]);
         assert_eq!(table.cells[2], vec!["Bob", "25"]);
-        assert_eq!(table.item_indices.len(), 6);
     }
 
     #[test]
     fn rejects_low_mcid_coverage() {
-        // Items have no MCIDs matching the struct table
         let items = vec![
             make_item("Orphan", 50.0, 700.0, 1, Some(999)),
             make_item("Text", 200.0, 700.0, 1, None),
@@ -318,11 +275,8 @@ mod tests {
             ],
         }];
 
-        let tables = detect_tables_from_struct_tree(&items, &struct_tables, 1);
-        assert!(
-            tables.is_empty(),
-            "should reject table with no MCID matches"
-        );
+        let tables = detect_from_struct_tree(&items, &struct_tables, PageNum::new(1));
+        assert!(tables.is_empty());
     }
 
     #[test]
@@ -363,12 +317,10 @@ mod tests {
             ],
         }];
 
-        // Page 1 should find nothing
-        let tables = detect_tables_from_struct_tree(&items, &struct_tables, 1);
+        let tables = detect_from_struct_tree(&items, &struct_tables, PageNum::new(1));
         assert!(tables.is_empty());
 
-        // Page 2 should find the table
-        let tables = detect_tables_from_struct_tree(&items, &struct_tables, 2);
+        let tables = detect_from_struct_tree(&items, &struct_tables, PageNum::new(2));
         assert_eq!(tables.len(), 1);
     }
 }
