@@ -4,6 +4,7 @@
 //! parser, and merges results into a unified [`Extraction`](crate::types::Extraction).
 
 pub mod layout;
+pub mod side_by_side;
 pub mod text;
 
 use std::collections::{HashMap, HashSet};
@@ -72,6 +73,54 @@ pub(crate) fn extract_positioned_text(
     }
 
     // Extract AcroForm field values.
+    let form_items = extract_form_fields(doc, &page_id_to_num);
+    all_items.extend(form_items);
+
+    Ok(((all_items, all_rects, all_lines), page_thresholds))
+}
+
+/// Re-extract text including invisible (Tr=3) text.
+///
+/// Used as a fallback when initial extraction produces garbage — the invisible
+/// text layer may contain OCR-derived text behind scanned images.
+pub(crate) fn extract_positioned_text_include_invisible(
+    doc: &Document,
+    font_cmaps: &FontCMaps,
+    page_filter: Option<&HashSet<u32>>,
+) -> Result<(PageExtraction, PageThresholds)> {
+    let pages = doc.get_pages();
+    let mut all_items = Vec::new();
+    let mut all_rects = Vec::new();
+    let mut all_lines = Vec::new();
+    let mut page_thresholds = PageThresholds::new();
+
+    let page_id_to_num: HashMap<ObjectId, u32> =
+        pages.iter().map(|(num, &id)| (id, *num)).collect();
+
+    for (page_num, &page_id) in pages.iter() {
+        if let Some(filter) = page_filter {
+            if !filter.contains(page_num) {
+                continue;
+            }
+        }
+
+        let pn = PageNum::new(*page_num);
+        let ((mut items, rects, lines), _has_gid, _rotated) =
+            extract_page_text_items(doc, page_id, pn, font_cmaps, true)?;
+
+        let threshold = fix_letterspaced_items(&mut items);
+        if threshold > 0.10 {
+            page_thresholds.insert(*page_num, threshold);
+        }
+
+        all_items.extend(items);
+        all_rects.extend(rects);
+        all_lines.extend(lines);
+
+        let links = extract_page_links(doc, page_id, *page_num);
+        all_items.extend(links);
+    }
+
     let form_items = extract_form_fields(doc, &page_id_to_num);
     all_items.extend(form_items);
 

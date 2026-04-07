@@ -274,6 +274,8 @@ pub struct Document {
     pub page_count: u32,
     /// Title from PDF metadata, if available.
     pub title: Option<String>,
+    /// Quality assessment of the extracted text.
+    pub quality: crate::quality::QualityReport,
 }
 
 /// Font encoding map: byte codes to Unicode characters.

@@ -32,6 +32,7 @@ pub mod types;
 mod extract;
 mod markdown;
 mod pdf;
+pub mod quality;
 mod tables;
 pub(crate) mod text;
 
@@ -93,6 +94,24 @@ pub fn convert_bytes_with(buffer: &[u8], options: &Options) -> Result<Document> 
     let ((raw_items, rects, lines), _page_thresholds) =
         extract::extract_positioned_text(&doc, &font_cmaps, page_filter.as_ref())?;
 
+    // Invisible text fallback: if initial extraction produces garbage, retry
+    // including invisible (Tr=3) text which may be an OCR layer.
+    let (raw_items, rects, lines) = {
+        let sample: String = raw_items.iter().take(200).map(|i| i.text.as_str()).collect();
+        if quality::is_garbage_text(&sample) || sample.trim().is_empty() {
+            log::debug!("initial extraction is garbage — retrying with invisible text");
+            let ((retry_items, retry_rects, retry_lines), _) =
+                extract::extract_positioned_text_include_invisible(
+                    &doc,
+                    &font_cmaps,
+                    page_filter.as_ref(),
+                )?;
+            (retry_items, retry_rects, retry_lines)
+        } else {
+            (raw_items, rects, lines)
+        }
+    };
+
     let merged = merge_text_items(raw_items);
     let items = merge_subscript_items(merged);
 
@@ -109,7 +128,21 @@ pub fn convert_bytes_with(buffer: &[u8], options: &Options) -> Result<Document> 
         .map(|tree| tree.extract_tables(&page_ids))
         .unwrap_or_default();
 
-    let page_tables = tables::detect_tables(&items, &rects, &lines, &struct_tables);
+    let base_font_size = {
+        let mut counts: HashMap<i32, usize> = HashMap::new();
+        for item in &items {
+            #[allow(clippy::cast_possible_truncation)]
+            let key = (item.font_size * 10.0) as i32;
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        counts
+            .iter()
+            .max_by(|(sa, ca), (sb, cb)| ca.cmp(cb).then_with(|| sb.cmp(sa)))
+            .map_or(12.0, |(s, _)| *s as f32 / 10.0)
+    };
+
+    let page_tables =
+        tables::detect_tables(&items, &rects, &lines, &struct_tables, base_font_size);
 
     let text_lines = group_into_lines(items);
 
@@ -135,10 +168,13 @@ pub fn convert_bytes_with(buffer: &[u8], options: &Options) -> Result<Document> 
         })
         .filter(|t| !t.trim().is_empty());
 
+    let quality = quality::check_quality(&markdown);
+
     Ok(Document {
         markdown,
         page_count,
         title,
+        quality,
     })
 }
 
